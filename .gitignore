@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# 构建产物
+build/
+dist/
+!EndBox.spec
+
+# 运行数据（便携 data/ 与 exe 旁的 EndBox/）
+data/
+_devdata/
+EndBox/
+.write_probe
+*.log
+
+# 开发临时
+_spike/
+shots/tmp_*
+vendor/
+
+# 用户本地素材与第三方参考项目（授权原因不入库）
+素材/
+窗口参考.png
+要求.md
+icon.png
+ENDCODEX*
+EndfieldRotPilot_v1.4.0/
+EndfieldRotPilot_v1.4.1/
+Calculate325-main/
+zmd-charge-main/

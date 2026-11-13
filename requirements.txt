@@ -1,0 +1,9 @@
+PyQt6>=6.6
+httpx>=0.27
+Pillow>=10.0
+# 325 计算器的 LaTeX 公式渲染（仓库 vendor/ 内已带，打包时一并带上）
+matplotlib>=3.8
+
+# 开发/测试（已 vendor 到 vendor/，无需安装）：
+# fonttools   -> tools/make_fonts.py 生成 Saira 静态字重
+# pytest      -> run_tests.py

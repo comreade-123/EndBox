@@ -1,0 +1,3 @@
+# 开发/测试依赖（不进 exe）
+pytest>=8
+fonttools>=4.40      # tools/make_fonts.py 生成 Saira 静态字重

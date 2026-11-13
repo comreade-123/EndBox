@@ -1,0 +1,12 @@
+{
+  "id": "timers",
+  "name": "材料刷新计时",
+  "version": "0.1.0",
+  "author": "EndBox",
+  "description": "记录采集点 / 材料的刷新倒计时：添加、删除、持久化，到点在右上角弹出提示。",
+  "icon": "clock",
+  "entry": "plugin.py",
+  "order": 10,
+  "min_app_version": "0.1.0",
+  "permissions": []
+}

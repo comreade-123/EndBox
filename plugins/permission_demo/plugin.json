@@ -1,0 +1,12 @@
+{
+  "id": "permission_demo",
+  "name": "权限演示",
+  "version": "0.1.0",
+  "author": "EndBox",
+  "description": "没有申请任何权限的插件：调用 timeline_snapshot() / account_snapshot() 会被宿主拒绝，界面显示拒绝原因与授权方式。",
+  "icon": "lock",
+  "entry": "plugin.py",
+  "order": 30,
+  "min_app_version": "0.1.0",
+  "permissions": []
+}

@@ -1,0 +1,12 @@
+{
+  "id": "timeline_stats",
+  "name": "排轴统计",
+  "version": "0.1.0",
+  "author": "EndBox",
+  "description": "读取排轴快照，统计事件数、各干员与各类型事件、Buff 覆盖率。需要 timeline:read 权限。",
+  "icon": "timeline",
+  "entry": "plugin.py",
+  "order": 20,
+  "min_app_version": "0.1.0",
+  "permissions": ["timeline:read"]
+}
