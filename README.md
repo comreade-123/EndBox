@@ -112,10 +112,19 @@ docs/                    开发约定、设计说明、各模块文档
 tests/                   测试（含文案 key、确认框、集成、输入、运行态）
 ```
 
-## 打包
+## 打包（v1.0.0）
 
-尚未打包。按要求，等界面验视通过后再用 PyInstaller 生成 `.exe`
-（需要一并带上 `assets/`、`plugins/`、`vendor/` 里的 matplotlib 与第三方 DLL）。
+已生成单文件 EXE：
+
+```bash
+python -m PyInstaller --clean --noconfirm EndBox.spec
+# 产物：dist/EndBox.exe（约 80 MB，单文件）
+```
+
+- 首次运行会在 **EXE 同目录创建 `EndBox/` 文件夹**，设置、凭据、日志、轴库、历史都存里面（便携）。
+- 打包只带 `assets/` 与 `plugins/`；`tests/`、`tools/`、`docs/`、参考项目、`vendor/` 测试依赖都不会进包。
+- 游戏素材 `素材/` 因版权与体积**不打包**：放到 EXE 同目录即可被排轴模块读取（缺素材时界面显示占位）。
+- 需要 LaTeX 渲染的 matplotlib 已随包携带；单文件启动会先解包到 `%TEMP%`，首次启动稍慢属正常。
 
 ## 已知限制
 

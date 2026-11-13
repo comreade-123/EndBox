@@ -16,6 +16,8 @@
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 ROOT = Path(SPECPATH).resolve()
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "vendor"))  # 让 PyInstaller 分析到 vendored matplotlib
@@ -44,7 +46,7 @@ a = Analysis(
         (str(ROOT / "assets"), "assets"),
         (str(ROOT / "plugins"), "plugins"),
     ],
-    hiddenimports=[
+    hiddenimports=collect_submodules("endbox") + [
         "matplotlib",
         "matplotlib.mathtext",
         "matplotlib.backends.backend_agg",
@@ -53,6 +55,7 @@ a = Analysis(
         "PIL.ImageFilter",
         "endbox.thirdparty.qrcode",
         "endbox.thirdparty.qrcode.main",
+        "matplotlib.backends.backend_agg",
     ],
     hookspath=[],
     hooksconfig={},
