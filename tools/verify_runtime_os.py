@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """排轴运行态按键验证（真实 keybd_event 优先，受限环境自动退回适配层注入）。
 
-键位（实机设定）：1~4 短按 = 战技、长按 1~4 = 终结、E = 连携；
-重击格只提示不按键；F8 退出 / F9 回第一段 / F6-F7 透明度 / F10 反复 / F11 回反复起点。
+真实键位（对齐游戏内设置）：1~4 短按 = 战技、长按 1~4 = 终结、E = 连携、
+F1~F4 = 切换干员；重击格只提示不按键（普攻末段/长按左键）；
+F8 退出 / F9 回第一段 / F6-F7 透明度 / F10 反复 / F11 回反复起点。
 
     python tools/verify_runtime_os.py
 """
@@ -29,6 +30,7 @@ from endbox.services import Services  # noqa: E402
 
 VK = {
     "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "E": 0x45, "H": 0x48,
+    "F1": 0x70, "F2": 0x71,
     "F6": 0x75, "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A,
 }
 KEYEVENTF_KEYUP = 0x0002
@@ -105,8 +107,9 @@ def main() -> int:
     service.model.clear()
     service.model.add_step("skill", 0)   # 1
     service.model.add_step("link", 1)    # E
+    service.model.add_step("switch", 1)  # F2
     service.model.add_step("ult", 0)     # 长按 1
-    service.model.add_step("heavy", 1)   # 重击（跳过）
+    service.model.add_step("heavy", 1)   # 重击（只提示，跳过）
     service.model.add_step("skill", 1)   # 2
 
     results: list[tuple[str, bool, str]] = []
@@ -148,25 +151,29 @@ def main() -> int:
 
     def schedule() -> None:
         steps = [s.token for s in service._run_engine.sequence.steps]
-        check("序列 token（重击跳过）", steps == ["1", "E", "HOLD+1", "2"], str(steps))
+        check("序列 token（重击跳过）", steps == ["1", "E", "F2", "HOLD+1", "2"], str(steps))
         check("适配层可用", service.input.available, service.input.status_text)
 
-    QTimer.singleShot(500, schedule)
-    QTimer.singleShot(700, lambda: press("1", "1"))
-    QTimer.singleShot(1150, lambda: check("短按 1 战技前进", index() == 1, f"index={index()}"))
-    QTimer.singleShot(1350, lambda: press("H", "H"))
-    QTimer.singleShot(1800, lambda: check("按错 H 不前进", index() == 1, f"index={index()}"))
-    QTimer.singleShot(2000, lambda: press("E", "E"))
-    QTimer.singleShot(2450, lambda: check("E 连携前进", index() == 2, f"index={index()}"))
-    QTimer.singleShot(2650, lambda: hold("1", "HOLD+1"))
-    QTimer.singleShot(3550, lambda: check("长按 1 终结前进", index() == 3, f"index={index()}"))
-    QTimer.singleShot(3750, lambda: press("2", "2"))
-    QTimer.singleShot(4200, lambda: check("短按 2 前进/完成", index() >= 4 or service._run_engine.finished, f"index={index()}"))
-    QTimer.singleShot(4400, lambda: press("F9", "F9"))
-    QTimer.singleShot(4850, lambda: check("F9 回第一段", index() == 0, f"index={index()}"))
-    QTimer.singleShot(5050, lambda: press("F8", "F8"))
+    def frame1() -> None:
+        check("短按 1 战技前进", index() == 1, f"index={index()}")
+
+    def frame2() -> None:
+        check("按错 H 不前进（重击无键盘键）", index() == 1, f"index={index()}")
+
+    def frame3() -> None:
+        check("E 连携前进", index() == 2, f"index={index()}")
+
+    def frame4() -> None:
+        check("F2 切换干员前进", index() == 3, f"index={index()}")
+
+    def frame5() -> None:
+        check("长按 1 终结前进", index() == 4, f"index={index()}")
+
+    def frame6() -> None:
+        check("短按 2 完成", index() >= 5 or service._run_engine.finished, f"index={index()}")
 
     def finalize() -> None:
+        check("F9 回第一段", index() == 0, f"index={index()}")
         check("F8 退出运行", service.run_active is False)
         service.stop_run("test")
         window.close()
@@ -175,6 +182,21 @@ def main() -> int:
         print("admin:", is_admin(), "| adapter:", service.input.status_text, "| fallback:", fallback)
         app.quit()
 
+    QTimer.singleShot(500, schedule)
+    QTimer.singleShot(700, lambda: press("1", "1"))
+    QTimer.singleShot(1150, frame1)
+    QTimer.singleShot(1350, lambda: press("H", "H"))
+    QTimer.singleShot(1800, frame2)
+    QTimer.singleShot(2000, lambda: press("E", "E"))
+    QTimer.singleShot(2450, frame3)
+    QTimer.singleShot(2550, lambda: press("F2", "F2"))
+    QTimer.singleShot(3000, frame4)
+    QTimer.singleShot(3100, lambda: hold("1", "HOLD+1"))
+    QTimer.singleShot(4050, frame5)
+    QTimer.singleShot(4200, lambda: press("2", "2"))
+    QTimer.singleShot(4650, frame6)
+    QTimer.singleShot(4800, lambda: press("F9", "F9"))
+    QTimer.singleShot(5100, lambda: press("F8", "F8"))
     QTimer.singleShot(5500, finalize)
     app.exec()
     failed = [name for name, ok, _ in results if not ok]

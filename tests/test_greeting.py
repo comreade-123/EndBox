@@ -45,7 +45,7 @@ def test_welcome_greeting_and_subline():
     assert welcome_greeting({"nickname": "博士"}, moment) == "早上好，博士"
     assert "今天肝点什么" in welcome_subline(moment)
     late = datetime(2026, 11, 13, 1, 0)
-    assert "早点休息" in welcome_subline(late)
+    assert welcome_subline(late) != welcome_subline(moment)
 
 
 def test_time_fields_are_real():

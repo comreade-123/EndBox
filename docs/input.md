@@ -1,8 +1,12 @@
 # 全局输入服务（`endbox/core/input`）
 
 排轴「按对键才推进」运行态的输入层：Windows 全局低级键盘钩子 + XInput 手柄轮询，
-把物理按键统一成**规范 token**（`Q+1` / `HOLD+3` / `PAD_A` …），通过 Qt 信号
+把物理按键统一成**规范 token**（`1` / `HOLD+3` / `E` / `F2` / `PAD_A` …），通过 Qt 信号
 回到主线程交给 timeline 等消费方。**不注入、不吞键、不要求游戏窗口在前台。**
+
+默认真实键位（对齐游戏内设置，来源 MaaEnd `assets/tasks/setting/Keymap.json`）：
+数字 1~4 短按 = 战技、长按 = 终结技、E = 连携、F1~F4 = 切换干员。
+旧版 `Q+n` / `E+n` / `ALT+n` / `H` token 只保留**解析兼容**，新代码不要再按旧语义使用。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -17,7 +21,7 @@
 
 ### 1.1 跑起来：3 秒监听（可直接运行）
 
-在仓库根目录保存为 `probe.py`，`python probe.py` 运行，然后按 **Q+1**、**长按 1**、**H**：
+在仓库根目录保存为 `probe.py`，`python probe.py` 运行，然后按 **1**、**长按 1**、**E**、**F1**：
 
 ```python
 # -*- coding: utf-8 -*-
@@ -88,7 +92,7 @@ class FakeKeyboard(KeyboardBackend):
 
 svc = InputService(keyboard_backend=FakeKeyboard(), admin_check=lambda: True)
 svc.start()
-svc.keyboard_backend._emit(KeyEvent(token="Q+1", kind="down", vk=0x31))
+svc.keyboard_backend._emit(KeyEvent(token="1", kind="down", vk=0x31))   # 数字短按 = 战技
 svc.stop()
 ```
 
@@ -101,18 +105,20 @@ svc.stop()
 
 | token | 触发 | 用途（timeline 默认） |
 | --- | --- | --- |
-| `1` `2` `3` `4` | 数字 1–4 单按（无修饰） | 合法 token；运行态通常不参与步骤匹配（见 §7） |
-| `Q+1` … `Q+4` | 按住 Q 再按数字 | 战技（1–4 号位） |
-| `E+1` … `E+4` | 按住 E 再按数字 | 连携（1–4 号位） |
-| `ALT+1` … `ALT+4` | 按住 Alt 再按数字 | 终结技（1–4 号位） |
-| `HOLD+1` … `HOLD+4` | **无修饰**长按数字 ≥ `hold_ms`（默认 280ms） | 终结技的长按路线（与 `ALT+n` 等价） |
-| `H` | H 键 | 重击 |
+| `1` `2` `3` `4` | 数字 1–4 单按（无修饰） | **战技**（1–4 号位；按下不发 token，由适配层等松开判定短按/长按） |
+| `HOLD+1` … `HOLD+4` | **无修饰**长按数字 ≥ `hold_ms`（默认 280ms） | **终结技**（1–4 号位） |
+| `E` | E 单按 | **连携**（全队共用；E 在输入层是修饰键，token 由 timeline 适配层从 raw 的 vk 补发） |
+| `F1` … `F4` | F1–F4 | **切换干员**（1–4 号位；可在键位设置里改） |
 | `F6` | F6 | 提示条变淡 |
 | `F7` | F7 | 提示条变实 |
 | `F8` | F8 | 退出运行态 |
 | `F9` | F9 | 回第一段 |
 | `F10` | F10 | 反复开关 |
 | `F11` | F11 | 回反复起点 |
+| `Q+1` … `Q+4` | 按住 Q 再按数字 | ⚠️ 旧版"战技"语义，仅解析兼容；运行态不再接受 |
+| `E+1` … `E+4` | 按住 E 再按数字 | ⚠️ 旧版"连携"语义，仅解析兼容；运行态不再接受 |
+| `ALT+1` … `ALT+4` | 按住 Alt 再按数字 | ⚠️ 旧版"终结"语义，仅解析兼容；运行态不再接受 |
+| `H` | H 键 | ⚠️ 旧版重击键；真实重击 = 普攻末段/长按鼠标左键，运行态忽略该 token |
 
 手柄（`source="gamepad"`，`set_gamepad` 打开后才轮询）：
 
@@ -127,10 +133,16 @@ svc.stop()
 
 - `PAD_MOD` 就是左肩键：单独按左肩键发 `PAD_LB`，按住它再按面键发 `PAD_MOD+PAD_A` 这类组合。
 - token 信号**只在按下 / 长按**时发一次；松开只进 `raw`（`kind="up"`），不产生动作 token。
-- 修饰键本身（Q/E/Alt）按下不发 token（只进 `raw`），避免误判。
+- 修饰键本身（Q/E/Alt）按下不发 token（只进 `raw`），避免误判；其中 E 作为连携键由
+  `timeline/input_adapter.py` 从 `raw` 的 vk 识别后补发 `E`。
+- **F1–F4 的识别**：`tokens.py` 规范已收录 F1–F24；但 `keyboard.py` 的钩子映射表目前只映射
+  F6–F11，所以 `token` 信号不会直接发 F1–F4。排轴适配层用 `raw` 事件的 `vk`（0x70–0x73）
+  识别切换键，游戏/本窗口焦点下均可用，不依赖钩子表更新。
+  若希望 `InputService.token` 直接发 `F1`–`F4`，需在 `keyboard.py` 的 `_VK_TO_BASE` 增加
+  `VK_F1..VK_F4 → F1..F4`（属于 core/input 负责人范围，本模块未越界修改）。
 - `normalize_token` 也接受旧写法：`q1` / `q+1` / `Q 1` → `Q+1`，`alt3` → `ALT+3`，
-  `hold1` → `HOLD+1`，`pad-a` → `PAD_A`，`padmod+a` → `PAD_MOD+PAD_A`；无法识别返回 `""`。
-  全部合法 token 见 `TOKENS` / `TOKEN_SET`（共 37 个）。
+  `f1` / `F1` → `F1`（切换干员），`hold1` → `HOLD+1`，`pad-a` → `PAD_A`，`padmod+a` → `PAD_MOD+PAD_A`；
+  无法识别返回 `""`。全部合法 token 见 `TOKENS` / `TOKEN_SET`（共 56 个）。
 
 ## 3. API
 
@@ -194,11 +206,11 @@ class InputService(QObject):
 临时脚本 `_spike/input_hook_probe.py`（保留，可随时删）做了两件事，3 秒内跑完：
 
 1. 装上真实钩子后，用 `keybd_event`/`SendInput` 合成按键（`LLKHF_INJECTED`），
-   覆盖 `1`、`Q+1`、`H`、`F8` 和「按住 1 超过 280ms」；
+   覆盖 `1`、`E`、`F1`、`F8` 和「按住 1 超过 280ms」；
 2. 打印捕获到的 token / KeyEvent / 是否 `injected`，以及 `stop()` 后钩子线程是否结束。
 
-结果见交付说明：真实钩子能收到**手动/合成按键**，`Q+1` 会正确归一化，
-长按 1 会先发 `1` 再发 `HOLD+1`，`stop()` 后线程干净退出。
+结果见交付说明：真实钩子能收到**手动/合成按键**，数字短按/长按会正确区分，
+`stop()` 后线程干净退出；旧 `Q+1` 等组合写法仍会被 `normalize_token` 归一化（仅兼容）。
 
 ## 6. 限制（务必在设置页/运行态提示里写清楚）
 
@@ -211,17 +223,18 @@ class InputService(QObject):
 | 输入法 / AltGr | 钩子按虚拟键码上报，不关心输入法组合；AltGr 在 Windows 上表现为 `Ctrl+Alt`，仍按 `ALT` 处理（`Ctrl` 未映射，不会出现在 token 里）。 |
 | 左右 Alt | `VK_MENU` / `VK_LMENU` / `VK_RMENU` 都归一化为 `ALT`。 |
 | 手柄支持范围 | XInput：Xbox 360 / One / Series 及被 Steam 等映射成 XInput 的手柄（0–3 号槽，自动热插拔）；DS 风格走 winmm `joyGetPosEx`（DirectInput 枚举到才可用），只映射 6 个按钮，**不支持扳机/摇杆/震动**；DS5 的触控板、自适应扳机等不在此服务范围内。 |
-| 手柄与键盘语义 | 手柄 token 是 `PAD_*`，timeline 的步骤 token 是 `Q+n/E+n/ALT+n/H`；消费方需要自己做映射（当前 timeline 运行态默认只吃键盘 token）。 |
+| 手柄与键盘语义 | 手柄 token 是 `PAD_*`，timeline 的步骤 token 是 `1~4` / `HOLD+n` / `E` / `F1~F4`；由 `timeline/run_overlay` 与 `RunStep.pad_tokens` 做映射（当前只映射战技/连携，终结技与切换干员仍需键盘）。 |
 | 无新依赖 | 全部用标准库 `ctypes` + PyQt6；非 Windows 平台 `start()` 返回 False 并发 `error`（`NullKeyboardBackend` 降级），不会崩。 |
 
 ## 7. 与 timeline 运行态的注意事项
 
-- **无修饰数字**：按下就发 `1`，长按 280ms 再发 `HOLD+1`（符合"额外发"的约定）。
-  timeline 的 `RunEngine` 只把当前步骤的 token 当作"按对"，所以**如果运行态不想让
-  无修饰数字触发"按错了"提示，消费端应忽略 `DIGITS` 这类 token**（只处理 `Q+/E+/ALT+/HOLD+/H/F*`），
-  或者只订阅 `raw` 自行过滤。这是消费方的匹配策略，输入服务只负责如实上报。
+- **短按数字 = 战技、长按 = 终结**：`token` 信号在按下时就发 `1`（无修饰数字），长按 280ms 再发
+  `HOLD+1`。timeline 适配层额外订阅 `raw` 的 down/up：短按等松开才发 `1`，长按只发 `HOLD+n`，
+  因此一次按键不会同时命中战技和终结技；直接订阅 `token` 的其他消费方需要自己按这个规则过滤。
+- **E / F1–F4 由适配层从 raw 补发**：E 在 core.input 里是修饰键（不产 token），F1–F4 不在钩子映射表；
+  `timeline/input_adapter.py` 按 raw 的 `vk` 识别后发 `E` / `F1`…`F4`，游戏焦点下同样有效。
 - **修饰键组合不会触发长按**：按住 Q/E/Alt 时按数字是组合键，即使长按也不会发
-  `HOLD+n`，避免一次按键同时命中战技/连携/终结技两个语义。
+  `HOLD+n`，避免一次按键同时命中两个语义（旧组合键 token 仍会归一化，但运行态不接受）。
 - **`F6`–`F11` 是运行控制键**：`token` 信号会照常发出，由 timeline 的
   `handle_input_token` 决定语义（退出/回第一段/变淡/变实/反复开关/回反复起点）。
 - **退出运行态必须 `stop()`**：否则钩子会一直留在系统里；本服务不自动跟随视图切换。

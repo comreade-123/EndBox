@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "name": "EndBox 官方插件市场",
+  "updated": "2026-11-14",
+  "repo": "https://github.com/comreade-123/EndBox",
+  "plugins": [
+    {
+      "id": "link_notes",
+      "name": "连携备忘录",
+      "version": "0.1.0",
+      "author": "EndBox",
+      "description": "记录干员 / 组合的连携触发条件，存在插件私有数据里；不需要任何权限。",
+      "icon": "link",
+      "category": "排轴",
+      "tags": [
+        "排轴",
+        "连携",
+        "备忘录"
+      ],
+      "homepage": "https://github.com/comreade-123/EndBox/tree/main/plugins/link_notes",
+      "download_url": "packages/link_notes-0.1.0.zip",
+      "sha256": "d8163e239bcdd4fab54c953e49c4464d0d67912301b62b19878ad82b04a1e78a",
+      "size": 3409,
+      "min_app_version": "1.1.0",
+      "permissions": [],
+      "changelog": "记录干员 / 组合的连携触发条件，保存在插件私有数据里。"
+    },
+    {
+      "id": "operator_roster",
+      "name": "干员练度",
+      "version": "0.1.0",
+      "author": "EndBox",
+      "description": "读取账号快照，统计干员数量、等级分布与服务器；需要 account:read 权限。没有数据时显示 —，不编造。",
+      "icon": "user",
+      "category": "账号",
+      "tags": [
+        "账号",
+        "干员",
+        "练度"
+      ],
+      "homepage": "https://github.com/comreade-123/EndBox/tree/main/plugins/operator_roster",
+      "download_url": "packages/operator_roster-0.1.0.zip",
+      "sha256": "2985d73e5101ba6afec5a0e419176cac212a978fec18af315731122620030204",
+      "size": 3873,
+      "min_app_version": "1.1.0",
+      "permissions": [
+        "account:read"
+      ],
+      "changelog": "按账号快照统计干员数量、平均等级、最高等级与服务器。"
+    },
+    {
+      "id": "permission_demo",
+      "name": "权限演示",
+      "version": "0.1.0",
+      "author": "EndBox",
+      "description": "没有申请任何权限的插件：调用 timeline_snapshot() / account_snapshot() 会被宿主拒绝，界面显示拒绝原因与授权方式。",
+      "icon": "lock",
+      "category": "示例",
+      "tags": [
+        "权限",
+        "示例"
+      ],
+      "homepage": "https://github.com/comreade-123/EndBox/tree/main/plugins/permission_demo",
+      "download_url": "packages/permission_demo-0.1.0.zip",
+      "sha256": "38f0a89f876eb09f68d0546ea92bca6e2805cb580fbd6779d8ecdbd2b9d32a59",
+      "size": 3449,
+      "min_app_version": "0.1.0",
+      "permissions": [],
+      "changelog": "演示宿主权限白名单：越权调用被拒绝并在界面显示原因。"
+    },
+    {
+      "id": "timeline_stats",
+      "name": "排轴统计",
+      "version": "0.1.0",
+      "author": "EndBox",
+      "description": "读取排轴快照，统计事件数、各干员与各类型事件、Buff 覆盖率。需要 timeline:read 权限。",
+      "icon": "timeline",
+      "category": "排轴",
+      "tags": [
+        "排轴",
+        "统计"
+      ],
+      "homepage": "https://github.com/comreade-123/EndBox/tree/main/plugins/timeline_stats",
+      "download_url": "packages/timeline_stats-0.1.0.zip",
+      "sha256": "e72054e7cba2eb05636adf161a5150b70db286bf3d49111f3ecb3ffa675ff74b",
+      "size": 5415,
+      "min_app_version": "0.1.0",
+      "permissions": [
+        "timeline:read"
+      ],
+      "changelog": "读取排轴快照，统计事件数、各干员与各类型事件、Buff 覆盖率。"
+    },
+    {
+      "id": "timers",
+      "name": "材料刷新计时",
+      "version": "0.1.0",
+      "author": "EndBox",
+      "description": "记录采集点 / 材料的刷新倒计时：添加、删除、持久化，到点在右上角弹出提示。",
+      "icon": "clock",
+      "category": "工具",
+      "tags": [
+        "计时",
+        "材料",
+        "刷新"
+      ],
+      "homepage": "https://github.com/comreade-123/EndBox/tree/main/plugins/timers",
+      "download_url": "packages/timers-0.1.0.zip",
+      "sha256": "43230e7bf88e23315b663d12fcdc57c7a7015b4c62911b92d33cfd83c6c1a037",
+      "size": 6205,
+      "min_app_version": "0.1.0",
+      "permissions": [],
+      "changelog": "材料 / 采集点刷新倒计时，支持预设、持久化与到点提示。"
+    }
+  ]
+}

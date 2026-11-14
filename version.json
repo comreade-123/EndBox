@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "version": "1.1.0",
+  "released": "2026-11-14",
+  "title": "v1.1.0 · 插件市场与版本更新",
+  "min_version": "1.0.0",
+  "notes": [
+    "新增插件市场：在「插件 → 市场」里浏览、安装、更新、卸载第三方插件，安装包会做 sha256 校验与安全解压。",
+    "新增版本更新检查：设置页「版本与更新」可以检查新版本、查看更新日志、打开发布页，也可以忽略某个版本。",
+    "账户中心接入真实玩家资料：玩家卡、理智、干员列表等数据来自森空岛，未连接时保持演示模式标注。",
+    "排轴按键按游戏真实键位重做：战技 = 数字短按、终结技 = 长按数字、连携 = E、切换干员 = F1–F4。",
+    "干员资料换成全量离线数据快照，技能名称、类型与动画时长来自游戏数据。",
+    "毛玻璃背景实时跟随窗口，拖动不再闪烁；界面文案整体润色，错误提示更直白。",
+    "修复若干界面细节与插件加载错误提示。"
+  ],
+  "downloads": {
+    "exe": "https://github.com/comreade-123/EndBox/releases/download/v1.1.0/EndBox.exe",
+    "zip": "https://github.com/comreade-123/EndBox/releases/download/v1.1.0/EndBox-v1.1.0.zip"
+  },
+  "html_url": "https://github.com/comreade-123/EndBox/releases/tag/v1.1.0",
+  "changelog_url": "https://github.com/comreade-123/EndBox/blob/main/CHANGELOG.md"
+}

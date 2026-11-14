@@ -8,7 +8,8 @@
     dist/EndBox.exe   （单文件；首次运行在同目录创建 EndBox/ 数据文件夹）
 
 说明：
-  · 只打包运行所需资源（assets/ + plugins/），tests/tools/docs/参考项目/素材都不进包；
+  · 只打包运行所需资源（assets/ + plugins/ + market/），tests/tools/docs/参考项目/素材都不进包；
+  · market/ 是官方插件市场索引与离线插件包（装进 _MEIPASS，市场页离线可浏览/安装）；
   · matplotlib 从 vendor/ 解析并随包携带（325 的 LaTeX 渲染）；
   · 应用图标使用 assets/branding/endbox.ico（透明背景，用户提供）；
   · 游戏素材 素材/ 不打包（版权 + 体积），放在 exe 同目录即可被排轴模块读取。
@@ -45,6 +46,8 @@ a = Analysis(
     datas=[
         (str(ROOT / "assets"), "assets"),
         (str(ROOT / "plugins"), "plugins"),
+        # 官方插件市场索引与离线插件包（market/index.json + packages/）
+        (str(ROOT / "market"), "market"),
     ],
     hiddenimports=collect_submodules("endbox") + [
         "matplotlib",

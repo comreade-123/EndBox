@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("ENDBOX_NO_GLASS", "1")
 os.environ.setdefault("ENDBOX_DATA_DIR", str(ROOT / "_devdata"))
+os.environ.setdefault("ENDBOX_NO_UPDATE_CHECK", "1")
 
 from PyQt6.QtCore import QTimer  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402

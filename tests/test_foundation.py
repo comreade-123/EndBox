@@ -417,7 +417,7 @@ def test_text_catalog_keys_exist(qapp):
     from endbox.core.text import catalog
 
     root = Path(__file__).resolve().parents[1] / "endbox"
-    pattern = re.compile(r"""t\(\s*["']([a-zA-Z0-9_.]+)["']""")
+    pattern = re.compile(r"""\bt\(\s*["']([a-zA-Z0-9_.]+)["']""")
     missing = []
     for path in root.rglob("*.py"):
         if "thirdparty" in path.parts or "__pycache__" in path.parts:

@@ -7,24 +7,30 @@ __pycache__/
 venv/
 
 # 构建产物
-build/
-dist/
+/build/
+/dist/
 !EndBox.spec
 
 # 运行数据（便携 data/ 与 exe 旁的 EndBox/）
-data/
-_devdata/
-EndBox/
+# 注意：必须锚定到仓库根，否则 Windows 大小写不敏感会把源码目录 endbox/ 一起忽略
+/data/
+/_devdata/
+# Windows 下 git 默认 core.ignorecase=true：任何 /EndBox/ 规则都会连带匹配源码目录 endbox/，
+# 因此不写该规则（打包出的 EndBox/ 数据目录位于 /dist/ 下，已被忽略），并显式保底包含源码。
+!/endbox/
+!/endbox/**
 .write_probe
 *.log
 
 # 开发临时
-_spike/
+/_spike/
 shots/tmp_*
-vendor/
+/vendor/
 
 # 用户本地素材与第三方参考项目（授权原因不入库）
-素材/
+/素材/
+# 从游戏数据站同步下来的干员头像/技能图标（版权归鹰角，仅本地使用，不重新分发）
+/assets/gamedata/
 窗口参考.png
 要求.md
 icon.png

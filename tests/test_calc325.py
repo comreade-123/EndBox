@@ -265,7 +265,7 @@ def test_solver_simple_and_decimal_negative_targets():
 def test_solver_no_solution_branch():
     result = solver.solve("1000", solver.SolveOptions(pattern="325", max_blocks=1, time_budget_ms=2000))
     assert not result.ok
-    assert result.error and "没有找到" in result.error
+    assert result.error and ("没有找到" in result.error or "没找到" in result.error)
     assert not result.timeout
 
 

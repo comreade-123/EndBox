@@ -1,0 +1,53 @@
+name: release
+
+# 打 tag（v1.1.0 这种）后自动：跑测试 → 打包单文件 exe → 建 GitHub Release。
+# 发布流程见 docs/update.md；最新版本声明记得同步改 version.json 与 endbox/version.py。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Syntax check
+        run: python -m compileall -q endbox
+
+      - name: Tests
+        run: python run_tests.py -q
+
+      - name: Build single-file EXE
+        run: python -m PyInstaller --clean --noconfirm EndBox.spec
+
+      - name: Pack zip
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path dist/EndBox.exe -DestinationPath "dist/EndBox-$tag.zip"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/EndBox.exe
+            dist/EndBox-*.zip

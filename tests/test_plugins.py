@@ -585,3 +585,51 @@ class Plugin(EndBoxPlugin):
     record = env.host.get("demo")
     assert record.state == STATE_LOADED
     assert record.instance.snapshot == {}
+
+
+# ---------------------------------------------------------------------------
+# 卸载记录 / 随程序分发的插件
+# ---------------------------------------------------------------------------
+
+
+def test_host_remove_drops_record_and_views(env):
+    write_plugin(env.bundled, "demo")
+    env.host.load_all()
+    record = env.host.get("demo")
+    assert record is not None
+    key = record.view_keys[0]
+    assert env.registry.has(key)
+
+    assert env.host.remove("demo")
+    assert env.host.get("demo") is None
+    assert not env.registry.has(key)
+    assert not env.host.remove("demo")
+
+
+def test_repo_bundled_plugins_all_load(tmp_path, qapp):
+    """仓库自带的示例插件必须都能加载（含新增的市场示例 operator_roster）。"""
+    from endbox import config
+    from endbox.app_context import AppContext
+    from endbox.core.event_bus import EventBus
+    from endbox.services import Services
+
+    settings = Settings(tmp_path / "settings.json")
+    ctx = AppContext(settings=settings, bus=EventBus(), services=Services())
+    registry = ViewRegistry()
+    host = PluginHost(
+        ctx,
+        registry,
+        roots=[(config.PLUGINS_DIR, "bundled")],
+        data_dir=tmp_path / "plugin_data",
+    )
+    try:
+        records = host.load_all()
+        summary = host.summary()
+        assert summary["error"] == 0, [
+            (record.plugin_id, record.error) for record in records if record.error
+        ]
+        ids = {record.plugin_id for record in records}
+        assert {"timers", "timeline_stats", "permission_demo", "operator_roster"} <= ids
+        assert summary["loaded"] >= 4
+    finally:
+        host.unload_all()

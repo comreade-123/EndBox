@@ -1,0 +1,12 @@
+{
+  "id": "link_notes",
+  "name": "连携备忘录",
+  "version": "0.1.0",
+  "author": "EndBox",
+  "description": "记录干员 / 组合的连携触发条件，存在插件私有数据里；不需要任何权限。",
+  "icon": "link",
+  "entry": "plugin.py",
+  "order": 40,
+  "min_app_version": "1.1.0",
+  "permissions": []
+}

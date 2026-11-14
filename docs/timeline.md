@@ -10,8 +10,8 @@ Buff 覆盖轨。技能块按顺序排成行，运行时提示条显示"下一�
 ```bash
 python main.py
 python run_tests.py tests/test_timeline.py -q
-python tools/shot.py timeline shots/timeline_dark.png dark
-python tools/shot.py timeline shots/timeline_light.png light
+python tools/shot.py timeline shots/timeline_new_dark.png dark
+python tools/shot.py timeline shots/timeline_new_light.png light
 ```
 
 ## 与 功能对照
@@ -22,7 +22,7 @@ python tools/shot.py timeline shots/timeline_light.png light
 | 快捷编队（顺序填人） | ✅「快捷编队」 | 自动找下一个空位 |
 | 添加干员包 | ⚠️ 不做 | 只读 `素材/`，不引入 zip 干员包 |
 | 编队库 | ✅ 编队库对话框 | 保存/搜索/载入/删除（破坏性操作先确认） |
-| 序列：战技/连携/终结/重击 | ✅ 按顺序插入 | 动作面板直接点干员插入；注释/换行/分段/反复用标记按钮 |
+| 序列：战技/连携/终结/切换干员/重击 | ✅ 按顺序插入 | 动作面板直接点干员插入；注释/换行/分段/反复用标记按钮 |
 | 注释 / 换行 / 分段 | ✅ 注释块 / ↵ 换行 / 第 N 段分隔条 | 运行时不按键 |
 | 反复（开始/结束配对、可嵌套、可无限） | ✅ ↻ 开始 ×N / ↻ 终点 | 共享组号；-1 = 无限；运行中 F10 开关、F11 回起点 |
 | 撤销/重做/左移/右移/删除 | ✅ 工具条 + Ctrl+Z / Ctrl+Y / ←→ / Delete | 破坏性操作先确认 |
@@ -31,9 +31,10 @@ python tools/shot.py timeline shots/timeline_light.png light
 | 全局按键提示 + 按对推进 | ✅ 自绘 overlay + core.input 服务 + GetAsyncKeyState 双通道 | 非管理员 UIPI 提示 + 一键提权重启 |
 | 运行控制 F8/F9/F6/F7/F10/F11 | ✅ | F8 退出、F9 回第一段、F6/F7 透明度、F10 反复开关、F11 回反复起点 |
 | 提示条样式/位置/缩放/透明度/预览/进度 | ✅ 运行提示条设置 | 持久化 `settings["timeline.run"]`，含手柄模式与长按阈值 |
-| 编辑动作面板（点干员直接插技能） | ✅ 顶部动作面板 | 战技/连携/终结 各一行 × 4 个干员按钮 + 重击行；注释/换行/分段/反复仍是标记按钮 |
-| 键位（实机） | ✅ 数字键控制 | 1~4 短按 = 战技、长按 = 终结；E = 连携；H = 重击提示；F6–F11 运行控制 |
-| 手柄（DS / Xbox） | ✅ `PAD_*` → 步骤映射 | LB/L1 + 面键 = 战技；单按面键或 RB/R1 = 连携；**终结技暂不支持手柄** |
+| 编辑动作面板（点干员直接插技能） | ✅ 顶部动作面板 | 战技/连携/终结/切换 各一行 × 4 个干员按钮 + 重击行；注释/换行/分段/反复仍是标记按钮 |
+| 键位（实机） | ✅ 真实键位模型 | 数字 1~4 短按 = 战技、长按 = 终结；E = 连携；F1~F4 = 切换干员；重击 = 普攻末段/长按左键（仅提示）；F6–F11 运行控制 |
+| 预计耗时 / 技力统计 | ✅ | 每步可设耗时（缺省按技能动画估算）；顶部显示预计总耗时与技力消耗 |
+| 手柄（DS / Xbox） | ✅ `PAD_*` → 步骤映射 | LB/L1 + 面键 = 战技；单按面键或 RB/R1 = 连携；**终结技 / 切换干员暂不支持手柄** |
 | 时间轴 / 播放头 / 块时长 / Buff 覆盖 | ❌ 已删除 | v3 不是时间轴模型 |
 | 运行时按键捕获/手柄 | ✅ core.input（键盘钩子 + 手柄轮询）/ GetAsyncKeyState 兜底 | 见下 |
 
@@ -41,16 +42,18 @@ python tools/shot.py timeline shots/timeline_light.png light
 
 `model.py`（无 Qt，可单测）：
 
-- 步骤类型：`skill / link / ult / heavy / comment / break / segment / loop_start / loop_end`
-- `Step(kind, operator, label, loop_count, group, uid)`
+- 步骤类型：`skill / link / ult / switch / heavy / comment / break / segment / loop_start / loop_end`
+- `Step(kind, operator, label, loop_count, group, duration, skill, uid)`：
+  `duration` = 预计耗时（秒，可空 = 未设置），`skill` = 绑定的技能名/技能 id（游戏数据，可空）。
 - `TimelineModel.steps` 有序列表；`segments()` 按 segment 标记切段；`loops()` 配对
-  反复开始/结束（可嵌套，深度最多显示 3 层）。
+  反复开始/结束（可嵌套，深度最多显示 3 层）；`total_duration()` / `energy_cost()` 提供真实统计。
 - 当前轴 `%APPDATA%\EndBox\timeline.json`（schema v3）：
 
 ```json
 {"version": 3, "name": "示例轴", "team": ["伊冯", "余烬", "佩丽卡", "陈千语"],
  "model": {"steps": [
-   {"kind": "skill", "operator": 0},
+   {"kind": "skill", "operator": 0, "duration": 1.2, "skill": "剑雨"},
+   {"kind": "switch", "operator": 1},
    {"kind": "loop_start", "operator": 0, "loop_count": 2, "group": "LAB12"},
    {"kind": "skill", "operator": 1},
    {"kind": "loop_end", "operator": 0, "group": "LAB12"},
@@ -60,20 +63,42 @@ python tools/shot.py timeline shots/timeline_light.png light
 
 - 旧 v1/v2 时间轴文件：读取时按 `start` 排序**最小迁移**为序列（时间/时长/Buff 丢弃，
   反复近似成开头/结尾标记），界面黄色提示"旧版时间轴已按顺序迁移"。
+- 旧键位语义（`Q+n` 战技 / `E+n` 连携 / `ALT+n` 终结 / `H` 重击）在读取旧设置、旧分享码时
+  迁移到真实键位模型（步骤与用户配置不丢，详见 §键位迁移）。
 - 自动保存（600ms 防抖）+「保存」立即写盘；写入 `.tmp` 后原子替换。
+
+## 游戏数据（干员 / 技能 / 动画时长）
+
+数据来自 data 工程师的 `assets/data/operators.json`（入库，~155KB，36 行 / 34 唯一名 / 180 技能），
+字段：`id,name,name_en,rarity,profession,profession_id,element,weapon,faction,tags,bio,avatar,skills[]`；
+`skills` 顺序固定 `attack → skill → link → ult → heavy`，字段
+`id,kind,type,name,icon,duration(秒),duration_frame,desc`。
+
+- 读取器：`endbox/modules/timeline/skills.py::GameDataLibrary`（纯标准库、无 Qt）：
+  - 根结构兼容 `{"operators": [...]}` / 名字→干员字典 / 直接列表；
+  - 同名多形态（管理员 m/f/9000）按 `has_assets` / 头像 / 稀有度取最优一条，按名去重；
+  - 技能 `kind` 用英文（`skill/link/ult`），`type` 中文只作兜底；`attack/heavy` 不算战技；
+  - 动画时长取 `duration`（秒，数据直接给）；缺失时按 `duration_frame / 30` 换算（游戏动作 30fps）。
+- 素材读取顺序：**`素材/` 优先，`assets/gamedata/` 补缺**（gamedata 是 data 同步脚本的本地缓存，
+  gitignored：`operators/<中文名>/avatar.png`、`operators/<中文名>/skills/{attack,skill,link,ult}.png`、
+  `classes/*.png`、`elements/*.png`）。游戏里职业叫「术师」、旧素材叫「术士」，两套都认。
+- 缺失/损坏时**优雅回退**：`AssetLibrary` 只用旧 `素材/`，技能名显示 —、耗时用默认估计值，不报错。
+- 干员池 = 素材目录 ∪ 游戏数据（数据里的新干员也能选；缺图用首字占位）。
 
 ## 编辑操作
 
 | 操作 | 方式 |
 | --- | --- |
 | 选槽位 | 工具条「投放槽位 01–04」；点队伍槽位也可以 |
-| 加步骤 | 「战技/连携/终结/重击/注释/换行/分段/反复开始/反复结束」→ 插到选中步骤之后/末尾 |
+| 加步骤 | 「战技/连携/终结/切换干员/重击/注释/换行/分段/反复开始/反复结束」→ 插到选中步骤之后/末尾 |
 | 改选中步骤的干员 | 选中块后点 01–04 槽位（或换人） |
 | 选中 / 多选 | 点击 / Ctrl+点击 |
 | 移动 | 「← / →」按钮或方向键；多选整体移动 |
 | 删除 | Delete 或删除按钮（**先确认**） |
 | 清空 |「清空序列」（**先确认**） |
 | 改注释/分段名/反复次数 | 双击对应标记；反复次数 -1 = ∞ |
+| 改按键步骤的预计耗时 / 技能名 | 双击按键步骤（战技/连携/终结/切换）→「步骤耗时 / 技能」对话框 |
+| 查看统计 | 底部实时显示步骤/分段/反复/预计总耗时/技力消耗/队伍 |
 | 撤销 / 重做 | Ctrl+Z / Ctrl+Y 或工具条按钮 |
 | 轴库 / 分享码 / 编队库 | 工具条按钮 |
 | 保存 | 工具条「保存」（编辑也会自动保存） |
@@ -89,46 +114,90 @@ python tools/shot.py timeline shots/timeline_light.png light
 | 战技 | 4 个槽位干员头像 + 名字 | `operator` = 该槽位、`kind = skill` | 短按 1~4 |
 | 连携 | 同上 | `kind = link` | E |
 | 终结 | 同上 | `kind = ult` | 长按 1~4 |
-| 重击 | 一个灰色斜纹按钮 | `kind = heavy`，`operator` 固定 0 | H（只提示不按键） |
+| 切换 | 同上 | `kind = switch` | F1~F4（不是数字键） |
+| 重击 | 一个灰色斜纹按钮 | `kind = heavy`，`operator` 固定 0 | 普攻末段 · 长按鼠标左键（只提示不按键） |
 
 - 点哪个干员按钮就在**光标处**插入「该干员 · 该技能」：有选中步骤时插在它后面，否则追加到末尾；
   插入后自动选中新步骤并聚焦画布，可以继续键盘操作（←/→ 移动、Delete 删除、Ctrl+Z 撤销）。
 - 干员头像缺图时用名字首字占位；未选人的槽位置灰（虚线框 + 「先去编队选干员」），
   点击只提示并打开干员池，不会插入空干员步骤。
-- 面板键位与运行提示条一致（1 / E / 长按3…）；连携键可在「键位」里改，两处同步。
+- 面板键位与运行提示条一致（1 / E / 长按3 / F2…）；连携键与 F1~F4 可在「键位」里改，两处同步。
+- 有 `assets/data/operators.json` 时，按钮副标题显示该干员的**技能名**（战技/连携/终结），
+  插入的步骤会自动带技能名与预计耗时；缺失数据时回退旧素材（只显示类型）。
 - 注释 / 换行 / 分段 / 反复开始 / 反复结束 仍是标记按钮，不产生按键步骤。
 - 旧的「投放槽位」段控件已删除；点队伍槽位 / 干员池仍可用于换人，选中块后用工具栏「←/→」或方向键调整。
 
-## 运行态
+## 预计耗时 / 技力消耗
+
+- **每步耗时**：插入战技/连携/终结/切换时自动带数据里的技能动画时长（`duration` 秒，
+  缺失时 `duration_frame / 30`）；没有数据时用默认估计（战技 1.2s / 连携 0.9s / 终结 2.0s / 切换 0.4s）。
+- **手动改**：双击任意按键步骤 →「步骤耗时 / 技能」对话框，可改技能名与耗时（秒，0–60，0.1 步进）；
+  「按数据重置」恢复该干员默认值。修改会写进轴（`duration` / `skill` 字段）并随分享码/轴库保存。
+- **底部统计**（真实计算）：`预计总耗时` = 手填耗时优先、缺的按技能动画估算；
+  `技力消耗` = 战技步数（每步 1 格，全队 3 格共享）；缺耗时步骤会在右侧提示「其中 N 步按技能动画估算」。
+- 运行提示条顶部也会显示当前步骤的预计耗时（如 `预计 5.0s`），卡片键位/技能名与编辑区一致。
+
 
 1. 点「开始运行」：按当前序列编译按键步骤（注释/换行/分段/重击不按键），
    置顶、鼠标穿透、不抢焦点的提示条出现；主窗口默认最小化（可在运行设置关闭），
    最小化后提示条仍留在游戏上。
-2. 提示条显示：下一步按键（`1` / `E` / `长按3` / `H`）、
-   当前干员 · 技能、第 N 段、进度 `3/9`、可选下一步预览与反复圈数；
+2. **默认整轴反复**：跑完最后一步自动回到第一步继续，不会结束、不用退出再重新开始；
+   提示条顶部显示「反复 ∞ · 第 N 遍」。可在运行设置里关掉「整轴反复」或按 F10 临时关掉，
+   那样才会在结尾结束。按 F8 才会退出运行。
+3. 提示条显示：下一步按键（`1` / `E` / `长按3` / `F2` / 左键）、
+   当前干员 · 技能、第 N 段、进度、反复圈数；
+   卡片主视觉是**技能图标**（战技 / 连携 / 终结 / 重击；切换干员画双向箭头），
+   干员头像缩成左上角小徽标；
+   「显示长度」可调（3–9 格，默认 5 格），设置会记住。
    非管理员时额外显示 UIPI 提示。
-3. **按对才前进**；按错不动，只显示一句轻提示（不抖动、不用红色）。
-4. F8 退出 / F9 回第一段 / F6 变淡 / F7 变实 / F10 反复开关 / F11 回反复起点；
+4. **按对才前进**；按错不动，只显示一句轻提示（不抖动、不用红色）。
+5. F8 退出 / F9 回第一段 / F6 变淡 / F7 变实 / F10 整轴反复开关 / F11 回反复起点；
    F8/F9/F10/F11 在应用失去焦点时由输入服务全局捕获。
-5. 运行结束或退出后提示条关闭、输入订阅停止；反复/分段按序列规则循环。
+6. 只有按 F8 退出（或关掉整轴反复后跑到结尾）时提示条才关闭、输入订阅停止。
 
-### 键位表（实机键位：数字短按 / 长按 + E）
+### 键位表（真实键位，来源 MaaEnd `assets/tasks/setting/Keymap.json`）
 
-键盘（数字 1~4 对应 1~4 号位；短按 = 战技，长按 = 终结技；松开前不判定）：
+真实键位对齐游戏内设置（MaaEnd 自动化项目的 `KeymapFight` 节，社区攻略交叉核对）：
 
 | 按键 | 语义 | 说明 |
 | --- | --- | --- |
 | 短按 `1~4`（< 长按阈值） | 战技 1~4 号位 | 输入适配层等松开才发 token，短按才前进 |
 | 长按 `1~4`（≥280ms，可调） | 终结技 1~4 号位 | 到阈值发 `HOLD+n`；长按松开后不会再补发短按 |
-| `E` | 连携 | 单按一下；对应轴上任意连携步骤 |
-| `H` | 重击键 | 轴上重击格只提示**不按键**：按 H 不会前进、也不会报按错（实机重击设定） |
+| `E` | 连携 | 全队共用；对应轴上任意连携步骤（哪个角色的连携由步骤 operator 决定） |
+| `F1` / `F2` / `F3` / `F4` | 切换干员 1~4 号位 | **不是数字键**；可在「键位」里改 |
+| 鼠标左键 | 普攻；连段最后一段长按 = 重击 | 轴上重击格只提示**不按键**：提示「普攻末段 · 长按左键」，不需要玩家按提示条操作 |
 | `F8` | 退出运行 | |
 | `F9` | 回到第一段 | |
 | `F6` / `F7` | 提示条变淡 / 变实 | 每次 10%，100%~30% 之间 |
-| `F10` | 临时开/关反复 | 只影响本次运行，不改轴 |
+| `F10` | 整轴反复开关 | 默认开（一直循环）；关掉后跑完结尾会结束。只影响本次运行 |
 | `F11` | 回最内层反复起点 | 不在反复里则回本段开头 |
 
-「键位」对话框可改连携键 `E`、重击键 `H` 与 F6–F11；数字 1~4 的短按/长按语义按实机键位固定。
+- 战技消耗 1 格技力、无冷却、全队 3 格技力共享；终结技靠充能，不占技力；连携技 E 由角色触发条件解锁。
+- 「键位」对话框可改连携键 `E` 与切换键 `F1~F4`，以及 F6–F11；数字 1~4 的短按/长按语义按实机键位固定。
+- 重击没有独立键盘键：`H` 只作为旧 token 兼容保留（按了不推进、也不报错），键位对话框不再提供重击键。
+
+#### 键位迁移（旧版 Q+n / E+n / ALT+n → 真实键位）
+
+旧版把 `Q+n` 当战技、`E+n` 当连携、`ALT+n` 当终结、`H` 当重击，全部错误。升级后：
+
+1. **步骤数据不丢**：轴上只有 `skill / link / ult / heavy` 语义，键位在运行时映射；
+   旧存档（v3 steps）与旧轴库条目直接可用，新的运行态按真实键位提示。
+2. **旧分享码可导入**：`EB2:` v1/v2 分享码仍接受（`share.SHARE_VERSION = 3`，兼容 1/2/3）；
+   旧时间轴 `events` 结构会按 `start` 迁移成有序步骤（时间/覆盖丢弃，步骤不丢），
+   导入后界面会提示「旧版分享码已按真实键位模型迁移」。新导出统一 v3。
+3. **旧键位设置迁移**：`timeline.keys` 里 `Q+n` / `E+n` / `ALT+n` 组合写法会被归一到基础键
+   （`E+2`→`E`，`Q`/`ALT` 这类修饰键回默认），`heavy` 字段原样保留但不使用，避免丢用户配置。
+4. 旧 token（`Q+1` / `E+1` / `ALT+1` / `H`）在 `endbox/core/input` 规范里仍可解析，
+   但排轴运行态只接受 `1~4` 短按 / `HOLD+n` / `E` / `F1~F4`；按旧组合键会提示按错。
+
+#### 分享文案（导出时的一整句话）
+
+分享对话框在分享码下面多给一段可以直接粘到聊天里的文案，例如：
+
+> 我在 EndBox 的排轴工具里排好了一个很好用的轴，干员：伊冯 / 余烬 / 佩丽卡 / 陈千语，这是分享码：EB2:…
+
+点「复制整段话」一次复制完；导入端不用挑，整段聊天记录粘进导入框也能识别出 `EB2:` 那串。
+模板在 `assets/text/zh-CN.json` 的 `timeline.share.blurb_template`（`{team}` / `{code}` 两个占位符）。
 
 手柄（运行设置里选 Xbox / DS；DS 走 winmm 时按 L1/R1 语义）：
 
@@ -137,10 +206,10 @@ python tools/shot.py timeline shots/timeline_light.png light
 | LB / L1 + X Y B A（DS：□ △ ○ ×） | 战技 1~4 号位 | `PAD_MOD+PAD_X/Y/B/A` |
 | 单按面键 X Y B A（DS：□ △ ○ ×） | 连携 1~4 号位 | `PAD_X/Y/B/A` |
 | RB / R1 | 连携（任意号位） | `PAD_RB` |
-| — | 终结技 | ❌ 暂不支持：`core.input` 没有终结技手柄 token，提示条回退显示键盘键位 |
+| — | 终结技 / 切换干员 | ❌ 暂不支持：`core.input` 没有长按数字 / F1-F4 的手柄等价 token，提示条回退显示键盘键位 |
 
 1~4 号位面键顺序：Xbox X/Y/B/A、DS □/△/○/×，两者物理位置一一对应（`PAD_X/Y/B/A`），所以改手柄类型只影响显示文本。
-运行条「键位显示 = 手柄」时卡片显示 `LB+X` / `RB` / `L1+□` / `R1`；没有手柄键位的步骤（终结技）显示键盘键位并在设置里有一句「暂不支持」说明。
+运行条「键位显示 = 手柄」时卡片显示 `LB+X` / `RB` / `L1+□` / `R1`；没有手柄键位的步骤（终结技 / 切换干员）显示键盘键位并在设置里有一句「暂不支持」说明。
 
 ### 输入适配层
 
@@ -150,6 +219,9 @@ python tools/shot.py timeline shots/timeline_light.png light
   同时保留 Windows `GetAsyncKeyState` 轮询兜底（双通道；60ms 内相同 token 去重）。
 - 输入服务启动失败/未运行时自动回退轮询；`input_status` 如实反映当前通道。
 - 数字键按下瞬间**先不发 token**：适配层额外接 `raw` 的 down/up，松开时按按住时长判定——短按发 `1~4`（战技）；长按由输入服务的 `HOLD+n` 负责（终结），松开后不会再补发短按，避免一次按键同时命中战技和终结。没有 `raw` 通道（mock/降级）时退化为「按数字即战技」。
+- 连携键 `E` 与切换键 `F1~F4` 在输入层可能不产生 token（E 在 core.input 里是修饰键、F1-F4 不在其钩子映射表里），
+  适配层额外从 `raw` 事件的 `vk` 识别：E 按下 → `E`；F1~F4（或自定义键）按下 → 对应 token。
+  这样即使 core.input 的钩子表没更新，游戏/本窗口焦点下都能正确识别；键位设置改了也立即生效。
 - 无输入服务且非 Windows 时给出人话提示；测试可用 `InputAdapter(backend="mock")`。
 - 手柄 token `PAD_*` 由 `RunStep.pad_tokens` 映射到步骤（见上表）；运行设置里的「手柄模式」交给 core.input。
 
@@ -174,7 +246,9 @@ python tools/shot.py timeline shots/timeline_light.png light
 
 `TimelineService.snapshot()`：
 
-- 序列字段：`name / steps / step_count / event_count / kinds / segments / loops / run_active`。
+- 序列字段：`name / steps / step_count / event_count / kinds / segments / loops / run_active`；
+  每步带 `duration`（预计耗时）与 `skill`（技能名，可为空）。
+- 统计字段：`total_duration`（预计总耗时秒）、`energy_cost`（战技步数 = 技力消耗格数）。
 - 旧字段仍保留给旧调用方：`t / playing / duration / team / active / events / buffs`
   （`events` 现在是步骤列表，home 只取 `len`；`t/duration` 无实际意义）。
 - 插件 `timeline_stats` 由 Lead 后续适配为读 `steps`。
@@ -184,23 +258,27 @@ python tools/shot.py timeline shots/timeline_light.png light
 `endbox/modules/timeline/`：`model.py`（序列模型/迁移）、`runtime.py`（按键序列编译 +
 推进状态机）、`service.py`（服务/运行/轴库/编队库/分享码）、`input_adapter.py`（双通道输入）、
 `run_overlay.py`（提示条）、`ui_canvas.py`（序列画布）、`ui_parts.py`（动作面板/编队/干员池/详情/对话框）、
-`library.py`、`share.py`、`assets.py`；`endbox/ui/views/timeline.py`（视图）。
+`library.py`、`share.py`、`assets.py`（素材 + 游戏数据合并）、`skills.py`（operators.json 读取/时长）；
+`endbox/ui/views/timeline.py`（视图）。
 
 ## 已知限制
 
-- 干员离线资料只包含 fz.wiki 公开卡片字段（稀有度/阵营/武器/词缀/简介等），
-  **不含技能描述**（wiki 技能数据在独立动作帧页，`skills` 目前为空，界面显示 —）。
+- 干员技能名/图标/动画时长来自 `assets/data/operators.json`（游戏数据 1.6.4 离线快照）；数据缺失时
+  界面显示 —、耗时按默认估计，不影响排轴功能。技能描述不在这里展示（详情页只显示技能名）。
+- **动画时长估算**：优先用游戏数据里的 `duration`（秒），缺失才按 `duration_frame / 30` 换算；
+  这是技能动画的理论时长，不含操作/移动/网络延迟，真实战斗节奏请按需手动改每步耗时。
 - 不实现 参考项目的 zip 干员包导入、手柄按键实时校准页、分享码 RP2/RP3 二进制互通
-  （本模块用自己的 `EB2:` Base64+JSON）。
+  （本模块用自己的 `EB2:` Base64+JSON，v3）。
 - 序列画布固定尺寸块、自动换行；多选后拖拽排序未实现（用左移/右移）。
 - 文案国际化已完成：timeline 的界面/提示/对话框/轴库/分享码文案全部在
   `assets/text/zh-CN.json` 的 `timeline` section，代码里除 docstring/注释/日志外没有中文字面量；
   `tests/test_timeline.py` 有 AST 扫描守卫（0 字面量才算过）。
-- 手柄暂不映射终结技：`core.input` 只有 `PAD_*` 面键/肩键 token，没有「长按数字」等价 token；
-  终结仍需键盘长按 1~4（提示条回退显示键盘键位）。
-- 与 参考实现 文档的差异：参考实现 v1.4.0 §八 描述的是 `Q/E/Alt` 组合键；按用户实机确认，
-  本模块改为「数字短按 = 战技、长按 = 终结、E = 连携」，旧组合键 token 不再参与匹配。
+- 手柄暂不映射终结技 / 切换干员：`core.input` 只有 `PAD_*` 面键/肩键 token，没有「长按数字」/F1-F4
+  等价 token；终结仍需键盘长按 1~4、切换仍需 F1-F4（提示条回退显示键盘键位）。
+- 与 参考实现 文档的差异：参考实现 v1.4.0 §八 描述的是 `Q/E/Alt` 组合键；按用户实机确认 +
+  MaaEnd `Keymap.json` 核对，本模块改为「数字短按 = 战技、长按 = 终结、E = 连携、F1-F4 = 切换干员」，
+  旧组合键 token 不再参与匹配（只在共享码/设置迁移时兼容）。
 - 旧时间轴迁移是近似：只按 start 排成序列，反复统一放到序列末尾成对标记。
-- 不联网；素材只从本地 `素材/` 读取，不复制、不重新分发。
+- 不联网；素材只从本地 `素材/` 与 `assets/gamedata/` 读取，不复制、不重新分发。
 
 

@@ -1,0 +1,43 @@
+{
+ "schema": "endbox.game_meta/1",
+ "game_version": "1.6.4",
+ "revision": "1.6.4@11775769-12",
+ "hotfix_version": "11775769-12",
+ "table_cfg_path": "public/1.6.4/11775769-12/TableCfg",
+ "table_published_at": "2026-11-14T10:02:38+08:00",
+ "asset_index_revision": "2026-11-12T04:03:39.994510+00:00",
+ "asset_index_updated_at": "2026-11-12T04:03:39.994510+00:00",
+ "generated_at": "2026-11-14 16:06:59",
+ "generator": "tools/fetch_game_data.py",
+ "operator_count": 36,
+ "skill_count": 180,
+ "sources": {
+  "game_data": {
+   "site": "https://data.akedata.wiki",
+   "manifest_latest": "1.6.4@11775769-12",
+   "shared_revision": "2026-09-02T12:36:22.209625+00:00"
+  },
+  "extras": {
+   "file": "assets/data/operators_extra.json",
+   "site": "https://www.fz.wiki",
+   "license": "CC BY-NC-SA 4.0"
+  }
+ },
+ "license": "游戏数据与素材版权归上海鹰角网络科技有限公司所有；数据由社区数据站 data.akedata.wiki（AKEDatabase）公开接口提供，前端采用 AGPL-3.0；干员阵营/词缀/简介来自 fz.wiki 快照（CC BY-NC-SA 4.0）。本文件与相关素材仅 EndBox 本地工具使用，不再分发。",
+ "usage": "仅 EndBox 本地工具使用：数据/素材版权归鹰角网络，不重新分发；阵营/词缀/简介来自 fz.wiki（CC BY-NC-SA 4.0）。",
+ "material_layout": {
+  "read_priority": [
+   "素材/",
+   "assets/gamedata/"
+  ],
+  "operator_dir": "operators/<中文名>/",
+  "avatar": "operators/<中文名>/avatar.png",
+  "portrait": "operators/<中文名>/portrait.png",
+  "skills": "operators/<中文名>/skills/{attack,skill,link,ult}.png",
+  "class_icon": "classes/<职业>.png",
+  "element_icon": "elements/<属性>.png",
+  "note": "operators.json 的 avatar/portrait 是相对「素材根」的路径；素材/ 为用户原素材（只读来源），assets/gamedata/ 为同步脚本补缺目录（gitignored）。"
+ },
+ "fetch_command": "python tools/fetch_game_data.py",
+ "sync_command": "python tools/sync_game_data.py"
+}

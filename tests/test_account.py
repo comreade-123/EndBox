@@ -147,7 +147,7 @@ def test_scan_created_missing_url_is_human_error():
 def test_scan_created_error_code_is_human_error():
     with pytest.raises(AccountError) as info:
         skland.parse_scan_created({"status": 1001, "msg": "请求过于频繁"})
-    assert "1001" in info.value.display() and "重试" in info.value.display()
+    assert "1001" in info.value.display() and ("重试" in info.value.display() or "再试" in info.value.display())
 
 
 def test_scan_create_network_failure_maps_to_account_error(monkeypatch):
@@ -158,7 +158,7 @@ def test_scan_create_network_failure_maps_to_account_error(monkeypatch):
     with pytest.raises(AccountError) as info:
         skland.create_scan_login()
     text = info.value.display()
-    assert "网络" in text and "重试" in text
+    assert "网络" in text and ("重试" in text or "再试" in text)
 
 
 # -- 森空岛：扫码状态 -------------------------------------------------------
@@ -201,7 +201,7 @@ def test_scan_status_confirmed_without_scan_code_is_error():
 def test_scan_status_unknown_message_is_error():
     with pytest.raises(AccountError) as info:
         skland.parse_scan_status({"status": 500, "msg": "服务异常"})
-    assert "扫码状态异常" in info.value.display()
+    assert "扫码状态" in info.value.display()
 
 
 # -- 森空岛：token / grant / cred -------------------------------------------
@@ -209,7 +209,7 @@ def test_parse_scan_token_success_and_expired():
     assert skland.parse_scan_token({"status": 0, "data": {"token": "oauth-token"}}) == "oauth-token"
     with pytest.raises(AccountError) as info:
         skland.parse_scan_token({"status": 1, "msg": "扫码凭证已失效"})
-    assert "失效" in info.value.display()
+    assert "过期" in info.value.display() or "失效" in info.value.display()
 
 
 def test_parse_grant_code():
@@ -242,7 +242,7 @@ def test_parse_credential_builds_credential():
 def test_parse_credential_missing_fields_is_human_error():
     with pytest.raises(AccountError) as info:
         skland.parse_credential({"code": 0, "data": {"cred": "c"}})
-    assert "cred" in info.value.display()
+    assert "凭据" in info.value.display()
 
 
 # -- 森空岛：签名 -----------------------------------------------------------
@@ -579,4 +579,632 @@ def test_view_logout_confirmed_clears_credentials(isolated_store, ctx, qapp, mon
     assert state["online"] is False and state["demo"] is False
     assert any(t("account.notify.logged_out") in text for text, _kind in ctx._toasts)
     view.deleteLater()
+
+
+# ===========================================================================
+# 2026-11：card/detail 真实数据结构（国服接口无真实账号，按公开文档结构 mock）
+# ===========================================================================
+CARD_DETAIL = {
+    "code": 0,
+    "message": "OK",
+    "data": {
+        "detail": {
+            "base": {
+                "roleId": "10448293",
+                "serverId": "1",
+                "serverName": "官服",
+                "name": "伊冯",
+                "level": 60,
+                "worldLevel": 5,
+                "exp": 12800,
+                "gender": 1,
+                "avatarUrl": "https://static.example/avatar.png",
+                "charNum": 4,
+                "weaponNum": 5,
+                "docNum": 12,
+                "createTime": 1700000000,
+                "lastLoginTime": 1700003600,
+                "saveTime": 1700003700,
+                "mainMission": {"description": "抵达塔卫二"},
+            },
+            "dungeon": {"curStamina": 92, "maxStamina": 135, "maxTs": 1700010000},
+            "bpSystem": {"curLevel": 27, "maxLevel": 60},
+            "dailyMission": {"dailyActivation": 3, "maxDailyActivation": 5},
+            "achieve": {"count": 46},
+            "domain": [
+                {
+                    "name": "塔卫二",
+                    "level": 12,
+                    "settlements": [{"name": "据点A", "level": 5}, {"name": "据点B", "level": 3}],
+                    "collections": {
+                        "puzzleCount": 12,
+                        "trchestCount": 8,
+                        "pieceCount": 15,
+                        "blackboxCount": 2,
+                    },
+                }
+            ],
+            "spaceShip": {"rooms": [{"type": 0, "level": 3}, {"type": 1, "level": 2}]},
+            "chars": [
+                {
+                    "charData": {
+                        "id": "chr_0001_yifeng",
+                        "name": "伊冯",
+                        "avatarSqUrl": "https://static.example/yifeng.png",
+                        "rarity": {"key": "rarity_6", "value": 6},
+                        "profession": {"value": "近卫", "key": "profession_guard"},
+                        "property": {"value": "寒冷", "key": "element_cold"},
+                        "skills": [{"id": "s1", "name": "技能"}],
+                    },
+                    "level": 60,
+                    "evolvePhase": 4,
+                    "potentialLevel": 2,
+                    "userSkills": {"s1": {"level": 10, "maxLevel": 10}},
+                    "weapon": {
+                        "weaponData": {"name": "霜痕", "rarity": {"key": "rarity_6", "value": 6}},
+                        "level": 60,
+                        "refineLevel": 2,
+                        "breakthroughLevel": 4,
+                    },
+                },
+                {
+                    "charData": {
+                        "id": "chr_0002_peilika",
+                        "name": "佩丽卡",
+                        "rarity": {"key": "rarity_5", "value": 5},
+                        "profession": {"value": "术师"},
+                        "property": {"value": "电磁"},
+                    },
+                    "level": 50,
+                    "evolvePhase": 3,
+                    "potentialLevel": 1,
+                },
+            ],
+        }
+    },
+}
+
+
+def _card_payload():
+    return json.loads(json.dumps(CARD_DETAIL))
+
+
+def test_parse_card_detail_real_structure():
+    card = skland.parse_card_payload(_card_payload())
+    assert card.role_id == "10448293"
+    assert card.server_id == "1"
+    assert card.server_name == "官服"
+    assert card.nickname == "伊冯"
+    assert card.level == 60 and card.world_level == 5 and card.exp == 12800
+    assert card.char_num == 4 and card.weapon_num == 5 and card.doc_num == 12
+    assert card.main_mission == "抵达塔卫二"
+    assert card.cur_stamina == 92 and card.max_stamina == 135
+    assert card.stamina_full_ts == 1700010000
+    assert card.bp_level == 27 and card.bp_max_level == 60
+    assert card.daily_activation == 3 and card.daily_max_activation == 5
+    assert card.achieve_count == 46
+    assert card.domains == [
+        {
+            "name": "塔卫二",
+            "level": 12,
+            "settlements": 2,
+            "settlement_max_level": 5,
+            "puzzle": 12,
+            "chest": 8,
+            "piece": 15,
+            "blackbox": 2,
+        }
+    ]
+    assert card.spaceship_rooms == [{"type": 0, "level": 3}, {"type": 1, "level": 2}]
+    assert len(card.operators) == 2
+    first = card.operators[0]
+    assert first.name == "伊冯"
+    assert first.rarity == 6 and first.rarity_key == "rarity_6"
+    assert first.profession == "近卫" and first.element == "寒冷"
+    assert first.level == 60 and first.evolve_phase == 4 and first.potential_level == 2
+    assert first.weapon_name == "霜痕" and first.weapon_rarity == 6
+    assert first.weapon_level == 60
+    assert first.avatar_url and first.avatar_path is None  # 不联网下载远程头像
+
+
+def test_parse_card_detail_missing_fields_are_none_not_fabricated():
+    card = skland.parse_card_payload(
+        {"code": 0, "data": {"detail": {"base": {"name": "空数据"}}}}
+    )
+    assert card.nickname == "空数据"
+    assert card.level is None and card.world_level is None
+    assert card.cur_stamina is None and card.max_stamina is None
+    assert card.operators == [] and card.domains == []
+
+
+def test_parse_card_detail_missing_base_is_human_error():
+    with pytest.raises(AccountError) as info:
+        skland.parse_card_payload({"code": 0, "data": {"detail": {}}})
+    assert "游戏数据" in info.value.display()
+
+
+def test_parse_card_detail_ws_auth_error_is_credential_expired():
+    with pytest.raises(skland.CredentialExpiredError):
+        skland.parse_card_payload(
+            {"code": 10002, "message": "用户未登录", "data": None}
+        )
+
+
+def test_parse_card_detail_api_error_is_human_error():
+    with pytest.raises(AccountError) as info:
+        skland.parse_card_payload({"code": 500, "message": "内部错误", "data": {}})
+    assert "500" in info.value.display() and "游戏数据" in info.value.display()
+
+
+def test_parse_card_detail_missing_data_is_human_error():
+    with pytest.raises(AccountError) as info:
+        skland.parse_card_payload({"code": 0})
+    assert "游戏数据" in info.value.display()
+
+
+def test_card_detail_requires_role_and_server_ids():
+    with pytest.raises(AccountError) as info:
+        skland.fetch_card_detail(
+            {"cred": "c", "token": "t"}, Role("伊冯", role_id="1")
+        )
+    assert "roleId" in info.value.display()
+
+
+def test_card_detail_signs_query_and_sends_game_role_header(monkeypatch):
+    monkeypatch.setattr(skland, "_now_ts_fresh", lambda: 1700000123)
+    captured: dict = {}
+
+    def fake_request(method, url, **kwargs):
+        captured.update(method=method, url=url, headers=kwargs.get("headers") or {})
+        return _card_payload()
+
+    monkeypatch.setattr(skland, "_request_json", fake_request)
+    card = skland.fetch_card_detail(
+        {"cred": "cred-value", "token": "sign-token"},
+        Role("伊冯", role_id="10448293", server_id="1"),
+        device="dev123456",
+    )
+    assert card.nickname == "伊冯"
+    assert captured["method"] == "GET"
+    assert captured["url"].endswith(
+        "/api/v1/game/endfield/card/detail?roleId=10448293&serverId=1"
+    )
+    headers = captured["headers"]
+    assert headers["sk-game-role"] == "3_10448293_1"
+    assert headers["cred"] == "cred-value"
+    assert "token" not in headers
+    # 独立复算签名：path + query + timestamp + json(headers)
+    timestamp = "1700000121"
+    signature_headers = {
+        "platform": "1",
+        "timestamp": timestamp,
+        "dId": "dev123456",
+        "vName": "1.21.0",
+    }
+    text = (
+        "/api/v1/game/endfield/card/detail"
+        + "roleId=10448293&serverId=1"
+        + timestamp
+        + json.dumps(signature_headers, separators=(",", ":"))
+    )
+    expected = hashlib.md5(
+        hmac.new(b"sign-token", text.encode("utf-8"), hashlib.sha256)
+        .hexdigest()
+        .encode()
+    ).hexdigest()
+    assert headers["sign"] == expected
+
+
+def test_card_detail_http_401_is_credential_expired(monkeypatch):
+    class _Response:
+        status_code = 401
+        headers: dict[str, str] = {}
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(skland.net, "request", lambda *_a, **_k: _Response())
+    with pytest.raises(skland.CredentialExpiredError):
+        skland.fetch_card_detail(
+            {"cred": "c", "token": "t"},
+            Role("伊冯", role_id="1", server_id="2"),
+        )
+
+
+def test_binding_parse_reads_channel_master_id_as_server_id():
+    payload = {
+        "code": 0,
+        "data": {
+            "list": [
+                {
+                    "appCode": "endfield",
+                    "appName": "明日方舟：终末地",
+                    "bindingList": [
+                        {
+                            "uid": "10448293",
+                            "nickName": "伊冯",
+                            "channelMasterId": "1",
+                            "channelName": "官服",
+                            "level": 60,
+                        },
+                        {
+                            "uid": "10448001",
+                            "nickName": "佩丽卡",
+                            "channelMasterId": "2",
+                            "channelName": "官服",
+                            "level": 50,
+                        },
+                    ],
+                }
+            ]
+        },
+    }
+    profile = skland.parse_bindings(payload)
+    assert len(profile.roles) == 2
+    assert profile.roles[0].role_id == "10448293"
+    assert profile.roles[0].server_id == "1"
+    assert profile.roles[1].server_id == "2"
+    assert profile.roles[0].api_ready is True
+
+
+def test_binding_parse_default_role_structure_is_deduped():
+    payload = {
+        "code": 0,
+        "data": {
+            "list": [
+                {
+                    "appCode": "endfield",
+                    "bindingList": [
+                        {
+                            "defaultRole": {
+                                "roleId": "10448293",
+                                "serverId": "1",
+                                "nickname": "伊冯",
+                                "serverName": "官服",
+                                "level": 60,
+                            },
+                            "roles": [
+                                {
+                                    "roleId": "10448293",
+                                    "serverId": "1",
+                                    "nickname": "伊冯",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+    profile = skland.parse_bindings(payload)
+    assert len(profile.roles) == 1
+    assert profile.roles[0].role_id == "10448293"
+    assert profile.roles[0].server_id == "1"
+
+
+def test_fetch_player_data_degrades_when_card_detail_fails(monkeypatch):
+    role = Role("伊冯", 60, "官服", role_id="10448293", server_id="1")
+
+    def fake_profile(credential, *, device=None):
+        return PlayerProfile(
+            provider=PROVIDER_SKLAND,
+            nickname="伊冯",
+            uid="10448293",
+            roles=[role],
+        )
+
+    monkeypatch.setattr(skland, "fetch_profile", fake_profile)
+
+    def card_fails(*_args, **_kwargs):
+        raise AccountError("接口暂不可用")
+
+    monkeypatch.setattr(skland, "fetch_card_detail", card_fails)
+    profile = skland._fetch_player_data({"cred": "c", "token": "t"}, 0, "dev123456")
+    assert profile.roles and profile.card is None
+    assert "接口暂不可用" in (profile.data_error or "")
+
+
+def test_fetch_player_data_retries_after_expired(monkeypatch):
+    role = Role("伊冯", 60, "官服", role_id="1", server_id="2")
+    calls = {"n": 0}
+
+    def fake_fetch(credential, role_index, device):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise skland.CredentialExpiredError("登录已失效")
+        return PlayerProfile(provider=PROVIDER_SKLAND, roles=[role])
+
+    monkeypatch.setattr(skland, "_fetch_player_data", fake_fetch)
+    monkeypatch.setattr(
+        skland, "refresh_credential", lambda credential, *, device=None: {**credential, "token": "new"}
+    )
+    profile, refreshed = skland.fetch_player_data_with_refresh(
+        {"cred": "c", "token": "old"}
+    )
+    assert calls["n"] == 2
+    assert refreshed["token"] == "new"
+    assert profile.roles
+
+
+# -- 服务：真实数据刷新 / 多角色 / 签到 --------------------------------------
+def _sync_run_async(monkeypatch):
+    """把 run_async 变成同步直调（account 服务测试不依赖 Qt 线程池）。"""
+
+    def fake_run(fn, *args, on_done=None, on_error=None, **kwargs):
+        try:
+            result = fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            if on_error:
+                on_error(exc)
+            return None
+        if on_done:
+            on_done(result)
+        return None
+
+    monkeypatch.setattr(service_mod, "run_async", fake_run)
+
+
+def test_service_refresh_publishes_player_and_operators(isolated_store, ctx, monkeypatch):
+    _sync_run_async(monkeypatch)
+    credential = {"cred": "c", "token": "t", "userId": "1", "oauthToken": "o"}
+    skland.save_credential(credential)
+    card = skland.parse_card_payload(_card_payload())
+    profile = PlayerProfile(
+        provider=PROVIDER_SKLAND,
+        nickname=card.nickname,
+        uid=card.role_id,
+        roles=[
+            Role(
+                "伊冯", 60, "官服", "近卫", "寒冷", role_id="10448293", server_id="1"
+            )
+        ],
+        card=card,
+    )
+    monkeypatch.setattr(
+        skland,
+        "fetch_player_data_with_refresh",
+        lambda cred, *, role_index=0, device=None: (profile, cred),
+    )
+    service = AccountService(ctx)
+    events: list[dict] = []
+    ctx.bus.subscribe("account.updated", lambda snapshot=None, **_: events.append(snapshot))
+    done: list[dict] = []
+    service.refresh(on_done=done.append)
+    state = service.snapshot()
+    # 旧契约字段不变
+    assert state["online"] is True and state["nickname"] == "伊冯"
+    assert state["roles"][0]["name"] == "伊冯"
+    # 新数据
+    assert state["player"] and state["player"]["uid_masked"] == "10••••93"
+    assert state["player"]["stamina"]["cur"] == 92
+    assert len(state["operators"]) == 2
+    assert state["operators"][0]["rarity"] == 6
+    assert state["data_error"] is None
+    assert done and events and events[-1]["player"]["level"] == 60
+    service.stop()
+
+
+def test_service_reuses_cached_card_when_detail_temporarily_fails(isolated_store, ctx, monkeypatch):
+    _sync_run_async(monkeypatch)
+    credential = {"cred": "c", "token": "t", "userId": "1", "oauthToken": "o"}
+    skland.save_credential(credential)
+    card = skland.parse_card_payload(_card_payload())
+    role = Role("伊冯", 60, "官服", role_id="10448293", server_id="1")
+    ok_profile = PlayerProfile(
+        provider=PROVIDER_SKLAND, nickname="伊冯", uid="10448293", roles=[role], card=card
+    )
+    calls = {"n": 0}
+
+    def fake_fetch(cred, *, role_index=0, device=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ok_profile, cred
+        return (
+            PlayerProfile(
+                provider=PROVIDER_SKLAND,
+                nickname="伊冯",
+                uid="10448293",
+                roles=[role],
+                data_error="临时接口失败",
+            ),
+            cred,
+        )
+
+    monkeypatch.setattr(skland, "fetch_player_data_with_refresh", fake_fetch)
+    service = AccountService(ctx)
+    service.refresh()
+    assert service.snapshot()["player"] is not None
+    service.refresh()
+    state = service.snapshot()
+    # 缓存降级：仍显示上次完整数据，但明确标注可能不是最新
+    assert state["player"] is not None
+    assert state["operators"]
+    assert "缓存" in (state["data_error"] or "")
+    service.stop()
+
+
+def test_service_select_role_persists_and_refetches(isolated_store, ctx, monkeypatch):
+    _sync_run_async(monkeypatch)
+    skland.save_credential({"cred": "c", "token": "t", "userId": "1", "oauthToken": "o"})
+    seen: list[int] = []
+
+    def fake_fetch(cred, *, role_index=0, device=None):
+        seen.append(int(role_index))
+        return (
+            PlayerProfile(
+                provider=PROVIDER_SKLAND,
+                nickname="第二角色",
+                uid="2",
+                roles=[Role("甲", role_id="1", server_id="1"), Role("乙", role_id="2", server_id="1")],
+                role_index=int(role_index),
+            ),
+            cred,
+        )
+
+    monkeypatch.setattr(skland, "fetch_player_data_with_refresh", fake_fetch)
+    service = AccountService(ctx)
+    service.refresh()
+    assert service.snapshot()["role_index"] == 0
+    service.select_role(1)
+    assert seen == [0, 1]
+    assert service.snapshot()["role_index"] == 1
+    assert ctx.settings.get("account.role_index") == 1
+    service.stop()
+
+
+def test_service_sign_attendance_reports_awards(isolated_store, ctx, monkeypatch):
+    _sync_run_async(monkeypatch)
+    credential = {"cred": "c", "token": "t", "userId": "1", "oauthToken": "o"}
+    skland.save_credential(credential)
+    monkeypatch.setattr(
+        skland,
+        "sign_attendance_for",
+        lambda cred, *, role_index=0, device=None: (
+            {"awards": [{"type": "daily"}, {"type": "first"}]},
+            cred,
+        ),
+    )
+    service = AccountService(ctx)
+    results: list[dict] = []
+    errors: list[Exception] = []
+    service.skland_sign_attendance(on_done=results.append, on_error=errors.append)
+    assert not errors
+    assert results and results[0]["awards"] == 2
+    assert service.is_busy() is False
+    service.stop()
+
+
+def test_service_sign_attendance_without_credential_is_human_error(isolated_store, ctx, monkeypatch):
+    service = AccountService(ctx)
+    errors: list[Exception] = []
+    service.skland_sign_attendance(on_done=lambda _r: None, on_error=errors.append)
+    assert errors and "签" in str(errors[0])
+    service.stop()
+
+
+def test_demo_state_contains_full_player_data():
+    state = demo_state(now=1700000000)
+    assert state["demo"] is True
+    assert state["player"] is not None
+    assert state["player"]["stamina"]["cur"] == 92
+    assert state["player"]["domains"] and state["player"]["bp"]["max"] == 60
+    assert state["player"]["uid_masked"] == mask_uid("10448293")
+    assert len(state["operators"]) == 4
+    assert state["operators"][0]["rarity"] == 6
+
+
+# -- 视图：旧 state 兼容 / 演示数据渲染 ---------------------------------------
+def test_view_opens_when_service_missing(ctx, qapp, monkeypatch):
+    ctx.services.account = None
+    view = _make_account_view(ctx, monkeypatch)
+    assert view._missing_flag.isHidden() is False
+    assert view._online_host.isHidden() is True
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_bili_online_keeps_scan_layout_for_skland(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    view = _make_account_view(ctx, monkeypatch)
+    bili_state = blank_state(online=True, provider="bilibili", nickname="B站用户")
+    view._apply_service_state(service, bili_state)
+    # B 服身份登录后仍显示扫码布局，用户可以继续扫森空岛拿终末地数据
+    assert view._online_host.isHidden() is True
+    assert view._offline_host.isHidden() is False
+    assert view._profile_empty.isHidden() is False
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_renders_partial_state_when_card_detail_failed(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    view = _make_account_view(ctx, monkeypatch)
+    partial = blank_state(
+        online=True,
+        provider=PROVIDER_SKLAND,
+        nickname="绑定昵称",
+        uid_masked="10••••93",
+        last_sync=1700000000,
+        data_error="读取终末地完整数据失败（code 500）：内部错误",
+    )
+    partial["roles"] = [
+        {"name": "伊冯", "level": 60, "server": "官服", "class": None, "element": None}
+    ]
+    view._apply_service_state(service, partial)
+    # 完整数据缺失时：降级显示绑定角色列表 + 人话说明，不崩、不编造
+    assert view._player_note.isHidden() is False
+    assert "500" in view._player_note.text()
+    assert view._binding_fallback.isHidden() is False
+    assert view._binding_rows.count() == 1
+    assert view._operator_note.isHidden() is False
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_accepts_legacy_state_without_new_fields(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    view = _make_account_view(ctx, monkeypatch)
+    legacy = {
+        key: blank_state()[key]
+        for key in (
+            "online",
+            "provider",
+            "nickname",
+            "uid_masked",
+            "avatar_path",
+            "roles",
+            "last_sync",
+            "demo",
+            "error",
+        )
+    }
+    legacy.update(online=True, provider=PROVIDER_SKLAND, nickname="旧状态", roles=[])
+    view._apply_service_state(service, legacy)  # 不抛异常即兼容
+    assert view._state is not None
+    assert view._role_selector.isHidden() is True
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_demo_renders_operator_list_and_filter(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    service.set_demo_mode(True)
+    view = _make_account_view(ctx, monkeypatch)
+    assert view._operator_rows.count() == 4
+    view._operator_filter.set_index(1, emit=True)  # 只看 6★
+    assert view._operator_rows.count() == 2
+    view._operator_filter.set_index(0, emit=True)
+    view._operator_sort.set_index(1, emit=True)  # 按稀有度排
+    assert view._operator_rows.count() == 4
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_role_selector_visible_for_multiple_roles(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    service.set_demo_mode(True)
+    view = _make_account_view(ctx, monkeypatch)
+    state = service.snapshot()
+    assert len(state["roles"]) > 1
+    assert not view._role_selector.isHidden()
+    view.on_hide()
+    view.deleteLater()
+
+
+def test_view_role_selector_hidden_for_single_role(isolated_store, ctx, qapp, monkeypatch):
+    service = AccountService(ctx)
+    ctx.services.account = service
+    view = _make_account_view(ctx, monkeypatch)
+    legacy = blank_state(online=True, provider=PROVIDER_SKLAND, nickname="单角色")
+    legacy["roles"] = [{"name": "伊冯", "level": 60, "server": "官服", "class": None, "element": None}]
+    view._apply_service_state(service, legacy)
+    assert view._role_selector.isHidden() is True
+    view.on_hide()
+    view.deleteLater()
+
 
