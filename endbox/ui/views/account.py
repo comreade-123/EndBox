@@ -771,6 +771,7 @@ class AccountView(BaseView):
         bottom_row.setSpacing(14)
         bottom_row.addWidget(self._build_exploration_panel(), 3)
         bottom_row.addWidget(self._build_progress_panel(), 2)
+        bottom_row.addWidget(self._build_spaceship_panel(), 2)
         online.addLayout(bottom_row)
         self._online_host.hide()
         layout.addWidget(self._online_host)
@@ -1007,10 +1008,6 @@ class AccountView(BaseView):
             t("account.stamina.current"), t("common.placeholder"), size=40
         )
         row.addWidget(self._stamina_value)
-        self._stamina_cap = Label(
-            t("account.stamina.cap", value=t("common.placeholder")), "muted"
-        )
-        row.addWidget(self._stamina_cap, 0, Qt.AlignmentFlag.AlignBottom)
         row.addStretch(1)
         panel.add_layout(row)
         self._stamina_progress = ProgressBar(height=5)
@@ -1019,6 +1016,9 @@ class AccountView(BaseView):
             t("account.stamina.full_in", time=t("common.placeholder")), "muted"
         )
         panel.add(self._stamina_countdown)
+        self._stamina_rate = Label("", "small")
+        self._stamina_rate.hide()
+        panel.add(self._stamina_rate)
         self._stamina_hint = Label("", "small", wrap=True)
         self._stamina_hint.hide()
         panel.add(self._stamina_hint)
@@ -1053,6 +1053,9 @@ class AccountView(BaseView):
         )
         self._operator_badge = Badge(t("common.placeholder"))
         panel.add_header_action(self._operator_badge)
+        self._operators_overview = Label("", "small")
+        self._operators_overview.hide()
+        panel.add(self._operators_overview)
         controls = QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(10)
@@ -1113,6 +1116,24 @@ class AccountView(BaseView):
         self._domain_note = Label("", "muted", wrap=True)
         self._domain_note.hide()
         panel.add(self._domain_note)
+        return panel
+
+    # -- 帝江号基建 ---------------------------------------------------------
+    def _build_spaceship_panel(self) -> Panel:
+        panel = Panel(
+            t("account.rooms.title", "帝江号基建"),
+            t("account.rooms.eyebrow", "SPACESHIP"),
+            padding=16,
+            spacing=10,
+        )
+        self._rooms_count = NumberStat(t("account.rooms.count", "已建房间"), "—", size=26)
+        panel.add(self._rooms_count)
+        self._rooms_detail = Label(t("common.placeholder"), "muted")
+        panel.add(self._rooms_detail)
+        self._rooms_note = Label("", "small", wrap=True)
+        self._rooms_note.hide()
+        panel.add(self._rooms_note)
+        panel.add(Spacer(h=0, expand=True))
         return panel
 
     # -- 通行证 / 每日任务 / 签到 -------------------------------------------
@@ -1405,6 +1426,7 @@ class AccountView(BaseView):
         self._rebuild_operators()
         self._rebuild_domains()
         self._apply_progress(player, provider, demo)
+        self._apply_spaceship(player)
         self._bind_role_selector(roles, state.get("role_index"), provider, demo)
         self._sync_cards_online(provider, demo)
         self._was_online = not demo
@@ -1466,6 +1488,16 @@ class AccountView(BaseView):
                     time=format_timestamp(player.get("create_time") if player else None),
                 ),
             ]
+            + (
+                [
+                    t(
+                        "account.profile.field_save_time",
+                        time=format_timestamp(player.get("save_time")),
+                    )
+                ]
+                if player and player.get("save_time")
+                else []
+            )
         )
         mission = player.get("main_mission") if player else None
         if mission:
@@ -1501,8 +1533,10 @@ class AccountView(BaseView):
         cur = stamina.get("cur")
         maximum = stamina.get("max")
         full_ts = stamina.get("full_ts")
+        self._stamina_cur = cur
+        self._stamina_max = maximum
         self._stamina_value.set_value(_text_or_dash(cur))
-        self._stamina_cap.setText(t("account.stamina.cap", value=_text_or_dash(maximum)))
+        self._stamina_value.set_unit(t("account.stamina.cap", value=_text_or_dash(maximum)))
         self._stamina_progress.set_ratio(_ratio(cur, maximum))
         try:
             self._stamina_full_ts = int(full_ts) if full_ts is not None else None
@@ -1532,14 +1566,39 @@ class AccountView(BaseView):
             self._stamina_countdown.setText(
                 t("account.stamina.full_in", time=t("common.placeholder"))
             )
+            self._stamina_rate.hide()
             self._stamina_timer.stop()
             return
         remaining = self._stamina_full_ts - int(time.time())
         if remaining <= 0:
             self._stamina_countdown.setText(t("account.stamina.full_now"))
+            self._stamina_rate.hide()
             self._stamina_timer.stop()
             return
         self._stamina_countdown.setText(t("account.stamina.full_in", time=_countdown(remaining)))
+        # 恢复速度：游戏里每 6 分钟 +1，这里用 (满溢时间 - 现在) / 剩余点数 反推，不写死
+        rate_text = ""
+        try:
+            cur = int(self._stamina_cur) if self._stamina_cur is not None else None
+            maximum = int(self._stamina_max) if self._stamina_max is not None else None
+        except (TypeError, ValueError):
+            cur = maximum = None
+        if cur is not None and maximum is not None and maximum > cur:
+            per_point = remaining / float(maximum - cur)
+            minutes = max(1, int(round(per_point / 60.0)))
+            next_gain = int(remaining % per_point) if per_point > 1 else int(per_point)
+            if next_gain <= 0:
+                next_gain = int(per_point)
+            rate_text = t(
+                "account.stamina.rate",
+                next=_countdown(next_gain),
+                minutes=minutes,
+            )
+        if rate_text:
+            self._stamina_rate.setText(rate_text)
+            self._stamina_rate.show()
+        else:
+            self._stamina_rate.hide()
 
     def _apply_scale(self, player: dict[str, Any] | None) -> None:
         self._stat_operators.set_value(
@@ -1563,6 +1622,30 @@ class AccountView(BaseView):
         self._operator_badge.set_text(
             t("account.operators.count", count=len(self._operators))
         )
+        if self._operators:
+            rarities: list[int] = []
+            levels: list[int] = []
+            for operator in self._operators:
+                try:
+                    rarities.append(int(operator.get("rarity") or 0))
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    if operator.get("level") is not None:
+                        levels.append(int(operator.get("level")))
+                except (TypeError, ValueError):
+                    pass
+            self._operators_overview.setText(
+                t(
+                    "account.operators.overview",
+                    count=len(self._operators),
+                    six=sum(1 for rarity in rarities if rarity == 6),
+                    top=max(levels) if levels else t("common.placeholder"),
+                )
+            )
+            self._operators_overview.show()
+        else:
+            self._operators_overview.hide()
         if self._operators:
             self._operator_note.hide()
         else:
@@ -1644,6 +1727,30 @@ class AccountView(BaseView):
             else (t("account.sign.no_data") if not can_sign else t("account.sign.hint"))
         )
 
+    def _apply_spaceship(self, player: dict[str, Any] | None) -> None:
+        """帝江号基建：card/detail 里的 spaceShip.rooms（已解析，之前没展示）。"""
+        rooms = list((player.get("spaceship_rooms") if player else None) or [])
+        levels: list[int] = []
+        for room in rooms:
+            try:
+                levels.append(int(room.get("level")))
+            except (TypeError, ValueError):
+                continue
+        self._rooms_count.set_value(_text_or_dash(len(rooms) if rooms else None))
+        if levels:
+            self._rooms_detail.setText(
+                t(
+                    "account.rooms.detail",
+                    top=max(levels),
+                    avg=sum(levels) / len(levels),
+                )
+            )
+            self._rooms_note.hide()
+        else:
+            self._rooms_detail.setText(t("common.placeholder"))
+            self._rooms_note.setText(t("account.rooms.empty"))
+            self._rooms_note.show()
+
     def _bind_role_selector(
         self,
         roles: list[dict[str, Any]],
@@ -1687,14 +1794,19 @@ class AccountView(BaseView):
         self._stat_weapons.set_value(t("common.placeholder"))
         self._stat_docs.set_value(t("common.placeholder"))
         self._stamina_value.set_value(t("common.placeholder"))
-        self._stamina_cap.setText(t("account.stamina.cap", value=t("common.placeholder")))
+        self._stamina_value.set_unit(t("account.stamina.cap", value=t("common.placeholder")))
         self._stamina_progress.set_ratio(0.0)
         self._stamina_full_ts = None
         self._stamina_timer.stop()
         self._stamina_countdown.setText(
             t("account.stamina.full_in", time=t("common.placeholder"))
         )
+        self._stamina_rate.hide()
         self._stamina_hint.hide()
+        self._rooms_count.set_value(t("common.placeholder"))
+        self._rooms_detail.setText(t("common.placeholder"))
+        self._rooms_note.hide()
+        self._operators_overview.hide()
         self._bp_bar.set_ratio(0.0)
         self._daily_bar.set_ratio(0.0)
         self._bp_label.setText(

@@ -2,8 +2,8 @@
 """文本类部件：标签、段落头、字段、标签块、大数字。"""
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, QSize, Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt
+from PyQt6.QtGui import QFont, QFontMetricsF, QPen
 from PyQt6.QtWidgets import QLabel, QSizePolicy
 
 from endbox.theme import fonts as F
@@ -186,11 +186,21 @@ class NumberStat(EWidget):
         font = F.number_font(self._size)
         label_font = F.font(12, cjk_first=True)
         width = max(paint.text_width(font, self._value), paint.text_width(label_font, self._label))
+        if self._unit:
+            width += 8 + paint.text_width(F.field_font(12), self._unit)
         return QSize(int(width) + 12, self._size + 30)
 
     def set_value(self, value: str) -> None:
         if value != self._value:
             self._value = value
+            self.updateGeometry()
+            self.update()
+
+    def set_unit(self, unit: str) -> None:
+        """数字后面的小单位（如「/ 135」）；与数字基线对齐。"""
+        if unit != self._unit:
+            self._unit = unit
+            self.updateGeometry()
             self.update()
 
     def paintEvent(self, _event) -> None:  # noqa: N802
@@ -200,12 +210,18 @@ class NumberStat(EWidget):
         colors = pal()
         font = F.number_font(self._size)
         value_w = paint.text_width(font, self._value)
-        paint.draw_text(p, QRectF(0, 0, value_w + 4, self._size + 8), self._value, font, colors.ink)
+        # 用字体度量算基线，让数字与单位真正对齐（之前用底部对齐会错位）
+        number_metrics = QFontMetricsF(font)
+        value_box_h = self._size + 8
+        baseline = (value_box_h - number_metrics.height()) / 2 + number_metrics.ascent()
+        p.setFont(font)
+        p.setPen(QPen(colors.ink))
+        p.drawText(QPointF(0, baseline), self._value)
         if self._unit:
-            paint.draw_text(
-                p, QRectF(value_w + 6, self._size - 8, 70, 18), self._unit,
-                F.field_font(12), colors.ink2,
-            )
+            unit_font = F.field_font(12)
+            p.setFont(unit_font)
+            p.setPen(QPen(colors.ink2))
+            p.drawText(QPointF(value_w + 8, baseline), self._unit)
         paint.draw_text(
             p, QRectF(0, self._size + 10, self.width(), 16), self._label,
             F.font(12, cjk_first=True), colors.ink2,

@@ -180,7 +180,6 @@ class Calc325View(BaseView):
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(12)
-        top_layout.addWidget(Label(t("calc325.banner"), "eyebrow"))
         top_layout.addStretch(1)
         top_layout.addWidget(Label(t("calc325.mode"), "body"))
         self._mode_seg = Segmented([t("calc325.mode.solve"), t("calc325.mode.random")], index=0)

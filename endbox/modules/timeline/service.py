@@ -117,6 +117,9 @@ class TimelineService(QObject):
         self._run_engine: RunEngine | None = None
         self._run_overlay = None
         self._run_hint = ""
+        self._wrong_seq = 0
+        self._advance_seq = 0
+        self._wrong_gindex: int | None = None
         self._overlay_enabled = bool(overlay_enabled)
         self.input = InputAdapter(ctx, backend=input_backend, parent=self)
         self.input.set_keys(self.keys())
@@ -598,6 +601,9 @@ class TimelineService(QObject):
         )
         self._run_active = True
         self._run_hint = ""
+        self._wrong_seq = 0
+        self._advance_seq = 0
+        self._wrong_gindex = None
         self.input.set_keys(self.keys())
         self.input.set_runtime_options(hold_ms=settings["hold_ms"], gamepad=settings["gamepad"])
         self.input.start()
@@ -657,6 +663,8 @@ class TimelineService(QObject):
         if token == normalize_token(keys.get("reset", "F9")):
             engine.reset()
             self._run_hint = ""
+            self._wrong_gindex = None
+            self._advance_seq += 1
             self._emit_run({"reset": True})
             return "control"
         if token in (normalize_token(keys.get("alpha_down", "F6")), normalize_token(keys.get("alpha_up", "F7"))):
@@ -682,17 +690,24 @@ class TimelineService(QObject):
         if engine.matches(token):
             engine.advance()
             self._run_hint = ""
+            self._advance_seq += 1
             if engine.finished:
                 self._emit_run({"finished": True})
                 self._finish_timer.start(FINISH_MS)
             else:
                 self._emit_run({"correct": True})
             return "ok"
-        step = engine.current
-        expected = step.key_text if step is not None else "—"
-        self._run_hint = tr("timeline.run.wrong_hint", next_key=expected)
-        self._hint_timer.start(HINT_MS)
-        self._emit_run({"wrong": True})
+        # 按错：直接跳过这一步（不提示），提示条那边把这张卡标红并抖一下
+        skipped = engine.index
+        self._run_hint = ""
+        engine.advance()
+        self._wrong_gindex = int(skipped)
+        self._wrong_seq += 1
+        if engine.finished:
+            self._emit_run({"finished": True, "wrong": True})
+            self._finish_timer.start(FINISH_MS)
+        else:
+            self._emit_run({"wrong": True})
         return "wrong"
 
     def handle_overlay_action(self, action: str) -> None:
@@ -760,6 +775,9 @@ class TimelineService(QObject):
             "total": engine.total if engine is not None else 0,
             "loops_enabled": engine.loops_enabled if engine is not None else True,
             "hint": self._run_hint,
+            "wrong_seq": self._wrong_seq,
+            "advance_seq": self._advance_seq,
+            "wrong_gindex": self._wrong_gindex,
             "keys": self.keys(),
             "settings": self.run_settings(),
             "input_available": self.input.available,
@@ -798,6 +816,7 @@ class TimelineService(QObject):
                 if card_step is None:
                     continue
                 card = card_step.to_dict()
+                card["gindex"] = int(idx)
                 card["kind_label"] = card_step.kind_label
                 card["state"] = "past" if idx < engine.index else ("current" if idx == engine.index else "next")
                 card["pad_key"] = _pad_key_for(card_step, display, pad_mode)
@@ -813,8 +832,10 @@ class TimelineService(QObject):
                         else:
                             icon = None
                         if icon is None and card_step.kind == "heavy":
-                            candidate = Path(self.assets.root) / "glyph" / "heavy.png"
-                            icon = candidate if candidate.is_file() else None
+                            icon = self.assets.gen_icon(name, "heavy")
+                            if icon is None:
+                                candidate = Path(self.assets.root) / "glyph" / "heavy.png"
+                                icon = candidate if candidate.is_file() else None
                         card["icon"] = str(icon) if icon else None
                 cards.append(card)
             base["cards"] = cards

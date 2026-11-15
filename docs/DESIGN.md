@@ -34,7 +34,7 @@
 - 图标来自用户提供的 `icon.png`（终末地同人插画），`tools/make_icon.py` 裁边缩放成
   `assets/branding/endbox.png`（512）与 `endbox.ico`（16–256 多尺寸）；用于窗口/任务栏、
   侧边栏字标、关于页。界面内部仍不使用游戏官方图标字体或标志。
-- 便携模式：`data/`（settings / secure.dat / logs / plugins / timeline.json / timeline_library.json）
+- 便携模式：`userdata/`（settings / secure.dat / logs / plugins / timeline.json / timeline_library.json）
   跟随软件目录；旧 `%APPDATA%\EndBox` 首次启动自动迁移，程序目录不可写时回退。
 
 ## 字体
@@ -68,15 +68,12 @@
 
 ## 窗口与玻璃
 
-Windows 11 的 `ACCENT_ENABLE_ACRYLICBLURBEHIND` 在 26200 上实测只做平涂染色、不再模糊背景，
-因此 EndBox 采用**自绘毛玻璃**（`endbox/ui/glass.py` + `main_window.py`）：
+毛玻璃用 **Windows 系统实时模糊**（`endbox/ui/glass.py::apply_acrylic`）：
 
-1. 窗口显示前抓取窗口背后桌面（`QScreen.grabWindow`）；
-2. 降采样 → 多次平滑放大，得到廉价且稳定的模糊底图；
-3. `paintEvent` 先铺底图，再叠 59%（深色）/ 69%（浅色）纸色染色，最后画 1px 细线与圆角；
-4. **移动 / 缩放时不自动重抓**（早期版本会在移动后透明化抓图，用户反馈窗口闪一下，已移除）；
-   换了壁纸或需要更新时，在设置页点「重新捕获毛玻璃背景」；
-5. 窗口圆角用 `setMask` 裁切，玻璃、内容与细线一起被裁圆；最大化时退回不透明。
+1. 保留系统窗口样式，在 `WM_NCCALCSIZE` 里把标题栏与边框裁掉，客户区铺满整个窗口；
+2. 用 `SetWindowCompositionAttribute` 开 acrylic：DWM 实时模糊桌面，拖动 / 换壁纸自动跟随；
+3. 窗口四角交给 Windows 自己画圆角（系统样式保留），模糊一起被裁圆；
+4. `paintEvent` 只叠一层很薄的纸色，面板半透明让模糊透出来；
+5. 最大化时关闭模糊、取消圆角铺满；最大化 / 还原用单一进度动画；最小化渐隐、还原渐显（240ms）。
 
-侧边栏半透明（约 69%）、主显示面板接近不透明（约 93%），保证长时间阅读。
-截图与自动化测试可设 `ENDBOX_NO_GLASS=1` 关闭毛玻璃，得到稳定背景。
+截图与自动化测试设 `ENDBOX_NO_GLASS=1` 关闭模糊，得到稳定背景。

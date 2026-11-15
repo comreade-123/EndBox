@@ -337,7 +337,7 @@ def test_startup_always_opens_home(qapp, tmp_settings):
 
 
 def test_portable_data_dir_and_migration(tmp_path, monkeypatch):
-    """数据默认落在软件目录 data/；旧 %APPDATA% 数据可迁移；不可写时回退。"""
+    """数据默认落在软件目录 userdata/；旧 %APPDATA% 数据可迁移；不可写时回退。"""
     import json
 
     from endbox import config
@@ -354,7 +354,7 @@ def test_portable_data_dir_and_migration(tmp_path, monkeypatch):
     monkeypatch.delenv("ENDBOX_DATA_DIR", raising=False)
 
     data_dir = config._data_dir()
-    assert data_dir == fake_root / "data"
+    assert data_dir == fake_root / "userdata"
     assert (data_dir / "settings.json").exists()  # 旧数据已迁移
     assert (data_dir / "timeline.json").exists()
 

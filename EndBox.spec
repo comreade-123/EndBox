@@ -1,15 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置：EndBox 单文件 EXE。
+"""PyInstaller 打包配置：EndBox 文件夹版（onedir）。
 
 构建：
     python -m PyInstaller --clean --noconfirm EndBox.spec
 
 产物：
-    dist/EndBox.exe   （单文件；首次运行在同目录创建 EndBox/ 数据文件夹）
+    dist/EndBox/EndBox.exe   （双击即用；数据默认放在 exe 同目录的 data/）
+
+为什么用文件夹版而不是单文件：
+    单文件 exe 启动时要把运行库解压到临时目录，中文路径 / 受限 %TEMP% 的机器会报
+    「Could not create temporary directory」。文件夹版不解压，从任何路径都能直接启动。
 
 说明：
   · 只打包运行所需资源（assets/ + plugins/ + market/），tests/tools/docs/参考项目/素材都不进包；
-  · market/ 是官方插件市场索引与离线插件包（装进 _MEIPASS，市场页离线可浏览/安装）；
+  · market/ 是官方插件市场索引与离线插件包（装进 _internal，市场页离线可浏览/安装）；
   · matplotlib 从 vendor/ 解析并随包携带（325 的 LaTeX 渲染）；
   · 应用图标使用 assets/branding/endbox.ico（透明背景，用户提供）；
   · 游戏素材 素材/ 不打包（版权 + 体积），放在 exe 同目录即可被排轴模块读取。
@@ -75,10 +79,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="EndBox",
     debug=False,
     bootloader_ignore_signals=False,
@@ -94,4 +96,14 @@ exe = EXE(
     entitlements_file=None,
     icon=str(ROOT / "assets" / "branding" / "endbox.ico"),
     version=str(ROOT / "tools" / "version_info.txt"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    name="EndBox",
+    strip=False,
+    upx=False,
+    upx_exclude=[],
 )

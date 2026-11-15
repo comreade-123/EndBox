@@ -27,7 +27,7 @@ GitHub Releases API（发布后自动生效）
    ├─ 成功 → 取最新正式版（跳过 draft / 优先非 prerelease）
    └─ 失败（无网 / 429 限流 / 404 / SSL）→ version.json（raw，轻量兜底）
           ├─ 成功 → 标记 degraded（来源 version.json）
-          └─ 失败 → data/cache/update_check.json（上次成功结果，标记 cached）
+          └─ 失败 → userdata/cache/update_check.json（上次成功结果，标记 cached）
                  └─ 也没有 → ok=False + 一句人话错误（静默，不弹系统框）
 ```
 

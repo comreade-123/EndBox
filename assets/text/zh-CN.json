@@ -277,7 +277,8 @@
       "mission": "当前任务 · {text}",
       "stat_level": "权限等阶",
       "stat_world_level": "探索等级",
-      "stat_exp": "当前经验"
+      "stat_exp": "当前经验",
+      "field_save_time": "游戏快照 {time}"
     },
     "notes": {
       "title": "数据来源与安全",
@@ -337,7 +338,8 @@
       "filter_six": "6★",
       "filter_five": "5★",
       "filter_low": "4★及以下",
-      "empty": "没有干员：数据还没读到，或者筛选后什么都不剩。"
+      "empty": "没有干员：数据还没读到，或者筛选后什么都不剩。",
+      "overview": "共 {count} 人 · 6★ {six} · 最高 Lv.{top}"
     },
     "stamina": {
       "title": "理智",
@@ -348,7 +350,8 @@
       "full_now": "理智已满溢",
       "no_data": "还没读到数据，理智先显示 —。",
       "badge_normal": "恢复中",
-      "badge_full": "已满"
+      "badge_full": "已满",
+      "rate": "下一点 {next} · 每 {minutes} 分钟 +1"
     },
     "scale": {
       "title": "规模统计",
@@ -371,7 +374,7 @@
       "eyebrow": "PROGRESS",
       "bp": "通行证 Lv.{cur} / {max}",
       "daily": "每日任务 {cur} / {max}",
-      "achieve": "光荣之路 {count}"
+      "achieve": "成就 {count}"
     },
     "sign": {
       "button": "签到",
@@ -531,6 +534,13 @@
         "failed": "二维码生成失败：登录链接可能不对。",
         "failed_hint": "请刷新二维码重试。"
       }
+    },
+    "rooms": {
+      "title": "帝江号基建",
+      "eyebrow": "SPACESHIP",
+      "count": "已建房间",
+      "detail": "最高 Lv.{top} · 平均 Lv.{avg:.1f}",
+      "empty": "还没有基建数据。"
     }
   },
   "timeline": {
@@ -1728,15 +1738,9 @@
       "theme_light": "浅色",
       "animations": "界面动效",
       "note": "主题分明暗两套，不做反色。黄色只标当前页、能点的地方和要留意的地方。",
-      "glass_button": "重新抓一次毛玻璃背景",
-      "glass_note": "背景在启动时抓一次，之后跟着窗口走，不会反复截屏，所以拖动时也不闪。换了壁纸或桌面内容变了，点上面的按钮重抓一次。",
+      "glass_note": "窗口背景是系统实时模糊：桌面动它就跟着动，不用手动刷新；最大化时关闭、还原后自动恢复。",
       "animations_on": "界面动效已开启",
-      "animations_off": "界面动效已关闭",
-      "glass_refreshed": "背景已重新抓取",
-      "glass_unsupported": "这个窗口不支持毛玻璃背景",
-      "glass_follow": "背景跟随窗口",
-      "glass_follow_on": "背景会跟着窗口走",
-      "glass_follow_off": "背景固定在抓取时的位置"
+      "animations_off": "界面动效已关闭"
     },
     "overlay": {
       "eyebrow": "OVERLAY",
@@ -1768,7 +1772,7 @@
       "open_plugins": "打开插件目录",
       "open_texts": "打开文案文件",
       "reload_texts": "重新加载文案",
-      "note": "便携模式：数据存在软件目录的 data/ 里。目录写不了就退回 %APPDATA%\\EndBox。账号登录信息用 Windows 加密存在本机，只有这台电脑的这个用户能读，不进日志，也不上传。",
+      "note": "便携模式：数据存在软件目录的 userdata/ 里。目录写不了就退回 %APPDATA%\\EndBox。账号登录信息用 Windows 加密存在本机，只有这台电脑的这个用户能读，不进日志，也不上传。",
       "texts_note": "界面文案都在 assets/text/zh-CN.json。改完点「重新加载文案」就生效，不用重启。",
       "texts_reloaded": "文案已重新加载",
       "texts_failed": "文案加载失败，详见日志"
@@ -1792,7 +1796,12 @@
       "author": "作者：{author}",
       "disclaimer": "非官方同人工具，跟鹰角网络、哔哩哔哩没关系。",
       "desc": "给《明日方舟：终末地》玩家用的桌面工具箱：账号、排轴、HUD、325 计算器，插件可以自己加。",
-      "fields": "Python {python} │ PyQt6 │ Windows"
+      "fields": "Python {python} │ PyQt6 │ Windows",
+      "sponsor": "赞助支持",
+      "sponsor_hint": "觉得好用可以请作者喝杯咖啡。",
+      "sponsor_title": "赞助支持",
+      "sponsor_note": "扫码就行，金额随意。谢谢每一个愿意支持的人。",
+      "sponsor_missing": "赞助码图片没找到。"
     }
   }
 }

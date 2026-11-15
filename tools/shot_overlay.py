@@ -26,6 +26,15 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "shots"
 
 
 def operator_asset(name: str, kind: str = "") -> str:
+    # 技能 / 连携 / 终结优先用 素材/gen 里生成的卡片图标
+    if kind in ("skill", "link", "ult"):
+        gen = ROOT / "素材" / "gen" / f"{kind}_{name}_x.png"
+        if gen.is_file():
+            return str(gen)
+    if kind == "heavy":
+        gen = ROOT / "素材" / "gen" / "heavy_x_x_nb.png"
+        if gen.is_file():
+            return str(gen)
     candidates = [
         config.GAME_ASSETS / "operators" / name / (f"{kind}.png" if kind else "avatar.png"),
         ROOT / "assets" / "gamedata" / "operators" / name / (f"{kind}.png" if kind else "avatar.png"),

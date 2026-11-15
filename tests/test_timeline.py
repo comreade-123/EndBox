@@ -452,12 +452,12 @@ def test_runtime_wrong_then_correct_and_controls(tmp_path):
     state = service.run_state()
     assert state["total"] == 3
     assert state["admin"] in (True, False)
-    # 短按数字 = 战技：按错号位不推进、给提示；按对才前进
+    # 短按数字 = 战技：按错号位直接跳过这一步（不提示，只标红抖动）
     assert service.feed_input("2") == "wrong"
-    assert service.run_state()["index"] == 0
-    assert "按错了" in service.run_state()["hint"]
-    assert service.feed_input("1") == "ok"
-    assert service.run_state()["index"] == 1
+    state = service.run_state()
+    assert state["index"] == 1
+    assert state["hint"] == ""
+    assert state["wrong_seq"] == 1 and state["wrong_gindex"] == 0
     # E = 连携
     assert service.feed_input("E") == "ok"
     # 长按数字 = 终结
@@ -821,15 +821,11 @@ def test_short_digit_is_skill_and_hold_is_ult(tmp_path):
     service.add_step("ult", 0)
     service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
-    # 短按数字 = 战技：2 号位按 2 才是战技，按 1 不对
+    # 短按数字 = 战技：2 号位按 2 才是战技，按 1 会跳过这一步
     assert service.feed_input("2") == "wrong"
-    assert service.run_state()["index"] == 0
-    assert service.feed_input("1") == "ok"
     assert service.run_state()["index"] == 1
-    # 当前是终结技：短按 1 不能推进（终结必须长按）
+    # 现在到终结技：短按 1 仍按错 → 跳过，整轴跑完
     assert service.feed_input("1") == "wrong"
-    assert service.run_state()["index"] == 1
-    assert service.feed_input("HOLD+1") == "ok"
     assert service.run_state()["finished"] is True
     service.stop_run("test")
 
@@ -840,10 +836,8 @@ def test_hold_number_is_the_only_ult_route(tmp_path):
     service.add_step("ult", 1)
     service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
-    # 短按 2 = 战技语义，不能当终结
+    # 短按 2 = 战技语义，不能当终结 → 按错直接跳过，整轴结束
     assert service.feed_input("2") == "wrong"
-    assert service.run_state()["index"] == 0
-    assert service.feed_input("HOLD+2") == "ok"
     assert service.run_state()["finished"] is True
     service.stop_run("test")
 
@@ -860,12 +854,10 @@ def test_switch_step_uses_f1_f4(tmp_path):
     assert sequence.steps[0].kind_label == "切换干员"
     service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
-    # 切换干员不能用数字键（数字是战技/终结）
+    # 切换干员不能用数字键：按错跳过第一个切换，再按错跳过第二个
     assert service.feed_input("1") == "wrong"
-    assert service.feed_input("F2") == "wrong"
-    assert service.feed_input("F1") == "ok"
     assert service.run_state()["index"] == 1
-    assert service.feed_input("F4") == "ok"
+    assert service.feed_input("F2") == "wrong"
     assert service.run_state()["finished"] is True
     service.stop_run("test")
 
@@ -939,14 +931,13 @@ def test_pad_tokens_map_to_skill_and_link(tmp_path):
     assert sequence.steps[2].pad_tokens == ("PAD_MOD+PAD_A",)
     service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
-    # 单按面键 = 连携语义，不能当战技
+    # 单按面键 = 连携语义：按错直接跳过，不当作战技
     assert service.feed_input("PAD_X") == "wrong"
-    # LB/L1 + 面键 = 战技
-    assert service.feed_input("PAD_MOD+PAD_X") == "ok"
-    # LB + 面键 = 战技语义，不是连携
-    assert service.feed_input("PAD_MOD+PAD_Y") == "wrong"
-    assert service.feed_input("PAD_RB") == "ok"
-    assert service.feed_input("PAD_MOD+PAD_A") == "ok"
+    assert service.run_state()["index"] == 1
+    # LB/L1 + 面键 = 战技；对战技步按错也会跳过
+    assert service.feed_input("PAD_MOD+PAD_X") == "wrong"
+    assert service.run_state()["index"] == 2
+    assert service.feed_input("PAD_RB") == "wrong"
     assert service.run_state()["finished"] is True
     service.stop_run("test")
 
@@ -957,11 +948,11 @@ def test_pad_tokens_not_accepted_for_ult(tmp_path):
     service.add_step("ult", 0)
     sequence = RunSequence.from_model(service.model, service.team.to_list(), keys_from_settings({}))
     assert sequence.steps[0].pad_tokens == ()
+    service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
-    for token in ("PAD_A", "PAD_RB", "PAD_MOD+PAD_X"):
-        assert service.feed_input(token) == "wrong"
-        assert service.run_state()["index"] == 0
-    assert service.feed_input("HOLD+1") == "ok"
+    # 手柄不能按终结技：按错直接跳过，之后按什么都不会再推进
+    assert service.feed_input("PAD_A") == "wrong"
+    assert service.run_state()["finished"] is True
     service.stop_run("test")
 
 
@@ -1142,11 +1133,12 @@ def test_action_panel_empty_slots_do_not_insert(qapp, tmp_path):
 def test_legacy_modifier_combos_are_not_used(tmp_path):
     """Q/E/Alt 组合键不再参与运行态：只有数字短按 / 长按 / E。"""
     service = _axis(make_service(tmp_path))
+    service.set_run_settings({"repeat_all": False})
     assert service.start_run() is True
+    # 旧组合键一律按错处理：每次按错跳过一步，三步轴按三次就跑完
     for token in ("Q+1", "E+2", "ALT+4"):
         assert service.feed_input(token) == "wrong"
-        assert service.run_state()["index"] == 0
-    assert service.feed_input("1") == "ok"
+    assert service.run_state()["finished"] is True
     service.stop_run("test")
 
 

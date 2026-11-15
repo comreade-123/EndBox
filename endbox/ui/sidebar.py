@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QPainter
+from PyQt6.QtGui import QColor, QFont, QPainter
 from PyQt6.QtWidgets import QAbstractButton, QSizePolicy, QVBoxLayout, QWidget
 
 from endbox import __version__
@@ -143,9 +143,14 @@ class Sidebar(EWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors = pal()
+        radius = getattr(self, "_radius", SIDEBAR_RADIUS)
         rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        paint.fill_round(p, rect, colors.sidebar, SIDEBAR_RADIUS)
-        paint.stroke_round(p, rect, colors.rule, SIDEBAR_RADIUS, 1.0)
+        fill = QColor(colors.sidebar)
+        if bool(getattr(self.window(), "_native_glass", False)):
+            fill.setAlpha(202)   # 模糊背景透出来
+        paint.fill_round(p, rect, fill, radius)
+        if radius > 0:
+            paint.stroke_round(p, rect, colors.rule, radius, 1.0)
         p.end()
 
     # -- 导航 ---------------------------------------------------------------

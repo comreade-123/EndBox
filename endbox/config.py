@@ -96,13 +96,21 @@ def _data_dir() -> Path:
     override = os.environ.get("ENDBOX_DATA_DIR")
     if override:
         return Path(override)
-    # 2) 便携模式：
-    #    打包后的 exe → 同目录 EndBox/（首次运行自动创建，用户要求）
-    #    源码运行     → 仓库根目录 data/（避免弄脏源码目录）
-    if getattr(sys, "frozen", False):
-        portable = ROOT / APP_DIR_NAME
-    else:
-        portable = ROOT / "data"
+    # 2) 便携模式：软件同目录 userdata/（首次运行自动创建）
+    #    旧版本：打包版用 EndBox/、源码版用 data/，这里自动改名迁移。
+    #    注意 Windows 大小写不敏感，源码目录 endbox/ 绝不能被当成旧数据目录。
+    portable = ROOT / "userdata"
+    if not portable.exists():
+        candidates = [ROOT / "data"]
+        if getattr(sys, "frozen", False):
+            candidates.insert(0, ROOT / APP_DIR_NAME)
+        for old in candidates:
+            if old.is_dir():
+                try:
+                    old.rename(portable)
+                    break
+                except OSError:
+                    pass
     if _writable_dir(portable):
         _migrate_legacy(portable)
         return portable
@@ -139,7 +147,6 @@ DEFAULTS: dict[str, Any] = {
         "theme": "dark",           # dark | light
         "last_view": "home",
         "animations": True,
-        "glass_follow": True,      # 毛玻璃背景跟随窗口实时移动
         "first_run": True,
         "version": "1.1.0",
     },

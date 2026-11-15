@@ -12,6 +12,9 @@
 """
 from __future__ import annotations
 
+import math
+import time
+
 from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
@@ -49,6 +52,8 @@ PAD = 10.0
 BAR_H = 3.0
 BASE_W = 560.0
 BASE_H = INFO_H + CARD_H + PAD * 2 + BAR_H + 2
+SHAKE_MS = 260        # 按错时卡片震动时长
+RING_MS = 300         # 到达下一步时白色圆圈收缩提示时长
 
 STYLE_ALIASES = {"standard": "focus", "compact": "box"}
 
@@ -126,6 +131,15 @@ class RunOverlay(QWidget):
         self._flash_timer.setSingleShot(True)
         self._flash_timer.setInterval(1200)
         self._flash_timer.timeout.connect(self._clear_flash)
+        # 按错标红震动 / 下一步白圈收缩
+        self._fx_timer = QTimer(self)
+        self._fx_timer.setInterval(16)
+        self._fx_timer.timeout.connect(self._tick_fx)
+        self._shake_start = 0.0
+        self._ring_start = 0.0
+        self._wrong_gindex = None
+        self._last_wrong_seq: int | None = None
+        self._last_advance_seq: int | None = None
         flags = (
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -160,9 +174,38 @@ class RunOverlay(QWidget):
 
     def apply_state(self, state: dict | None) -> None:
         self._state = dict(state or {})
+        wrong_seq = int(self._state.get("wrong_seq") or 0)
+        advance_seq = int(self._state.get("advance_seq") or 0)
+        # 按错：标记卡片 + 抖一下（服务侧已跳过该步，这里只是视觉反馈）
+        wrong_changed = False
+        if self._last_wrong_seq is not None and wrong_seq > self._last_wrong_seq:
+            wrong_changed = True
+            self._shake_start = time.monotonic()
+            self._wrong_gindex = self._state.get("wrong_gindex")
+        # 前进到新一步：白色圆圈从外围收缩到卡片上（按错跳过时不弹圈，只标红）
+        if (
+            not wrong_changed
+            and self._last_advance_seq is not None
+            and advance_seq > self._last_advance_seq
+        ):
+            self._ring_start = time.monotonic()
+        self._last_wrong_seq = wrong_seq
+        self._last_advance_seq = advance_seq
+        if self._shake_start or self._ring_start:
+            self._fx_timer.start()
         self._apply_geometry()
         if self.isVisible():
             self._reposition()
+        self.update()
+
+    def _tick_fx(self) -> None:
+        now = time.monotonic()
+        if self._shake_start and (now - self._shake_start) * 1000 >= SHAKE_MS:
+            self._shake_start = 0.0
+        if self._ring_start and (now - self._ring_start) * 1000 >= RING_MS:
+            self._ring_start = 0.0
+        if not self._shake_start and not self._ring_start:
+            self._fx_timer.stop()
         self.update()
 
     def show_overlay(self) -> None:
@@ -175,6 +218,9 @@ class RunOverlay(QWidget):
 
     def hide_overlay(self) -> None:
         self._flash_timer.stop()
+        self._fx_timer.stop()
+        self._shake_start = 0.0
+        self._ring_start = 0.0
         self.hide()
 
     # -- 几何 ---------------------------------------------------------------
@@ -313,21 +359,47 @@ class RunOverlay(QWidget):
             paint.draw_text(p, QRectF(PAD + 8, 17, width - PAD * 2 - 10, 10), hint,
                             F.font(8, cjk_first=True), colors.ink, elide=True)
         # 卡片
+        now = time.monotonic()
+        shake_t = (
+            min(1.0, (now - self._shake_start) * 1000 / SHAKE_MS) if self._shake_start else 1.0
+        )
+        ring_t = (
+            min(1.0, (now - self._ring_start) * 1000 / RING_MS) if self._ring_start else 1.0
+        )
+        wrong_index = self._wrong_gindex if self._shake_start else None
         x = PAD
         y = INFO_H + 2
         style = self._settings["style"]
+        current_rect: QRectF | None = None
         for card in cards:
             card_state = card.get("state")
             selected = card_state == "current"
             card_rect = QRectF(x, y, CARD_W, CARD_H)
+            is_wrong = wrong_index is not None and card.get("gindex") == wrong_index
+            if is_wrong:
+                # 标红 + 横向震动（幅度随进度衰减）
+                offset = math.sin(shake_t * math.pi * 6) * 5.0 * (1.0 - shake_t)
+                card_rect.translate(offset, 0)
             if selected:
+                current_rect = QRectF(card_rect)
                 if style in ("box", "compat"):
                     paint.fill_cut(p, card_rect, _rgba(colors.signal, 235), 5, "br")
                 else:
                     paint.fill_cut(p, card_rect, colors.chip, 5, "br")
             else:
                 paint.fill_cut(p, card_rect, _rgba(colors.chip, 190), 5, "br")
-            paint.stroke_cut(p, card_rect, colors.signal if selected and style != "box" else colors.rule, 5, "br", 1.0 if not selected else 1.6)
+            if is_wrong:
+                paint.fill_cut(p, card_rect, _rgba(colors.danger, 96), 5, "br")
+            paint.stroke_cut(
+                p,
+                card_rect,
+                colors.danger if is_wrong else (
+                    colors.signal if selected and style != "box" else colors.rule
+                ),
+                5,
+                "br",
+                2.0 if is_wrong else (1.0 if not selected else 1.6),
+            )
             dim = card_state == "past" or (style in ("focus", "compat") and not selected)
             p.setOpacity(0.45 if dim else 1.0)
             key = card.get("key_text") or "—"
@@ -373,6 +445,18 @@ class RunOverlay(QWidget):
             if selected:
                 paint.stroke_cut(p, card_rect.adjusted(1, 1, -1, -1), colors.trace, 5, "br", 1.8)
             x += CARD_W + GAP
+        # 到达下一步：白色圆圈由外向内收缩
+        if ring_t < 1.0 and current_rect is not None:
+            ease = 1.0 - (1.0 - ring_t) ** 2
+            radius = CARD_H * 0.52 * (1.0 + 0.85 * (1.0 - ease))
+            alpha = int(210 * (1.0 - ease))
+            if alpha > 0:
+                pen = QPen(QColor(255, 255, 255, alpha))
+                pen.setWidthF(2.0)
+                p.setPen(pen)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                center = current_rect.center()
+                p.drawEllipse(center, radius, radius)
         if state.get("warning"):
             p.fillRect(QRectF(PAD + 2, y + CARD_H - 8, 3, 5), colors.signal)
         self._paint_progress(p, colors, QRectF(PAD, height - BAR_H - 2, width - PAD * 2, BAR_H))

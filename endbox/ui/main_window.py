@@ -7,8 +7,24 @@
 """
 from __future__ import annotations
 
+import ctypes
+import sys
+from ctypes import wintypes
+
 from PyQt6 import sip
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, Qt, QTimer
+from PyQt6.QtCore import (
+    QAbstractNativeEventFilter,
+    QPoint,
+    QSize,
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
@@ -41,17 +57,53 @@ SHELL_GAP = 10      # 窗口边距 / 侧边栏与主面板之间的间隙
 SHELL_RADIUS = 16   # 整窗圆角
 PANEL_RADIUS = 12   # 侧边栏、主显示面板圆角
 
+WM_SYSCOMMAND = 0x0112
+WM_NCCALCSIZE = 0x0083
+SC_MINIMIZE = 0xF020
+
+
+class _SysCommandFilter(QAbstractNativeEventFilter):
+    """接管任务栏按钮的最小化（Windows 发 WM_SYSCOMMAND），让它走渐隐动画。"""
+
+    def __init__(self, window) -> None:
+        super().__init__()
+        self._window = window
+
+    def nativeEventFilter(self, event_type, message):  # noqa: N802
+        if not sys.platform.startswith("win"):
+            return False, 0
+        try:
+            if event_type in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+                msg = wintypes.MSG.from_address(int(message))
+                # 去掉系统标题栏/边框，但保留 DWM 的圆角与背景材质
+                if msg.message == WM_NCCALCSIZE and int(msg.wParam):
+                    return True, 0
+                if msg.message == WM_SYSCOMMAND:
+                    command = int(msg.wParam) & 0xFFF0
+        except Exception:  # noqa: BLE001
+            pass
+        return False, 0
+
 
 class MainPanel(EWidget):
     """主显示面板：圆角板 + 细线边框，内部含顶栏与主显示区。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._radius = PANEL_RADIUS   # 最大化时置 0，铺满窗口
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors = pal()
+        glass_on = bool(getattr(self.window(), "_native_glass", False))
+        base = QColor(colors.content)
+        if glass_on:
+            base.setAlpha(192)   # 模糊背景透出来
         rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        paint.fill_round(p, rect, colors.content, PANEL_RADIUS)
-        paint.stroke_round(p, rect, colors.rule, PANEL_RADIUS, 1.0)
+        paint.fill_round(p, rect, base, self._radius)
+        if self._radius > 0:
+            paint.stroke_round(p, rect, colors.rule, self._radius, 1.0)
         p.end()
 
 
@@ -66,19 +118,28 @@ class MainWindow(QWidget):
         self.registry = registry
         self.ctx.main_window = self
         self.ctx.open_view = self.show_view
-        self._glass_ok = False
-        self._glass_base = None      # 当前帧：窗口位置对应的毛玻璃图
-        self._glass_field = None     # 整屏模糊场（只抓一次，移动时按偏移裁）
-        self._glass_geo = None       # 底图对应的窗口几何
-        # 移动/缩放时合并重绘，最多每 16ms 取一帧，避免拖动时反复裁图
-        self._glass_timer = QTimer(self)
-        self._glass_timer.setSingleShot(True)
-        self._glass_timer.setInterval(16)
-        self._glass_timer.timeout.connect(self._sync_glass_frame)
+        self._native_glass = False    # 系统实时模糊是否生效
+        # 最小化渐隐 / 恢复渐显
+        self._fade_anim = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade_anim.setDuration(240)
+        self._fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # 自定义最大化：单一进度动画（几何 + 边距 + 圆角）
+        self._maximized = False
+        self._normal_geo = None
+        self._animating = False
+        self._shell_radius = SHELL_RADIUS
+        self._shell_anim = QVariantAnimation(self)
+        self._shell_anim.setDuration(260)
+        self._shell_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._view_opened = False
 
         self.setWindowTitle(t("shell.window_title", "EndBox · 终末地工具箱"))
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self._taskbar_filter = _SysCommandFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installNativeEventFilter(self._taskbar_filter)
+        # 保留系统窗口样式（DWM 圆角 + 背景模糊），标题栏在原生事件里裁掉
+        self.setWindowFlags(Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumSize(1040, 700)
         w = int(ctx.settings.get("window.w", 1320) or 1320)
@@ -125,7 +186,7 @@ class MainWindow(QWidget):
         self.sidebar.view_selected.connect(self.show_view)
         self.topbar.settings_clicked.connect(lambda: self.show_view("settings"))
         self.topbar.theme_toggled.connect(self.toggle_theme)
-        self.topbar.min_btn.clicked.connect(self.showMinimized)
+        self.topbar.min_btn.clicked.connect(self._minimize_with_fade)
         self.topbar.max_btn.clicked.connect(self.toggle_maximize)
         self.topbar.close_btn.clicked.connect(self.close)
 
@@ -138,9 +199,6 @@ class MainWindow(QWidget):
         if not default_view:
             classes = self.registry.classes()
             default_view = classes[0].key if classes else ""
-        # 先抓窗口背后桌面，作为毛玻璃底图（show 之前抓，避免抓到自己）
-        if config.GLASS_ENABLED:
-            self._capture_glass()
         if default_view:
             QTimer.singleShot(0, lambda: self._open_default(default_view))
 
@@ -265,92 +323,131 @@ class MainWindow(QWidget):
                 self.move(geo.center().x() - self.width() // 2, geo.center().y() - self.height() // 2)
             self._placed = True
         self._apply_mask()
+        self._enable_glass()
+        # 从最小化唤回时透明度可能是 0，这里兜底一次，保证窗口可见
+        if not self.isMinimized() and float(self.windowOpacity()) < 0.99:
+            self._fade_window(1.0)
 
     def _apply_mask(self) -> None:
-        if self.isMaximized():
-            self.clearMask()
-        else:
-            self.setMask(paint.window_mask(self.width(), self.height(), SHELL_RADIUS))
+        # 保留系统窗口样式后由 DWM 画圆角，自绘遮罩会盖掉系统模糊
+        self.clearMask()
 
-    def _capture_glass(self, *, hide_window: bool = False) -> None:
-        """抓一次整屏，做成低分辨率模糊场。
+    def _enable_glass(self) -> None:
+        """开启系统实时模糊（DWM 实时合成桌面，桌面动它跟着动）。"""
+        if not config.GLASS_ENABLED or self._maximized:
+            self._native_glass = False
+            return
+        colors = pal()
+        tint = QColor(colors.window).name()
+        alpha = 0x38 if colors.is_dark else 0x58
+        ok = glass.apply_acrylic(self, tint=tint, alpha=alpha)
+        self._native_glass = ok
+        log.info("realtime glass: %s", self._native_glass)
+        self.update()
 
-        移动/缩放**不再重新截屏**（截屏会让窗口闪一下）：只从这张模糊场里按窗口位置
-        裁一块放大，所以背景会跟着窗口真实移动，每帧开销约 1–2ms。
-        换壁纸或桌面内容变了，由设置页「重新抓一次」显式重抓。
-        """
-        if not config.GLASS_ENABLED:
+    def _disable_glass(self) -> None:
+        if self._native_glass:
+            glass.disable_realtime_glass(self)
+        self._native_glass = False
+
+    def _set_shell_mode(self, maximized: bool) -> None:
+        """最大化：去掉外边距、面板圆角与毛玻璃，铺满屏幕；还原时恢复。"""
+        gap = 0 if maximized else SHELL_GAP
+        self._outer.setContentsMargins(gap, gap, gap, gap)
+        radius = 0 if maximized else PANEL_RADIUS
+        self.main_panel._radius = radius  # noqa: SLF001
+        self.sidebar._radius = 0 if maximized else 12  # noqa: SLF001
+        self._shell_radius = 0 if maximized else SHELL_RADIUS
+        if maximized:
+            self._disable_glass()
+        self.main_panel.update()
+        self.sidebar.update()
+        self.update()
+
+    def _apply_shell_interim(self, t: float) -> None:
+        """动画中间态：外边距 / 面板圆角 / 窗口圆角一起插值，避免跳变。"""
+        t = max(0.0, min(1.0, float(t)))
+        gap = SHELL_GAP * (1.0 - t)
+        self._outer.setContentsMargins(
+            int(round(gap)), int(round(gap)), int(round(gap)), int(round(gap))
+        )
+        self.main_panel._radius = int(round(PANEL_RADIUS * (1.0 - t)))  # noqa: SLF001
+        self.sidebar._radius = int(round(12 * (1.0 - t)))  # noqa: SLF001
+        self._shell_radius = int(round(SHELL_RADIUS * (1.0 - t)))
+        self.main_panel.update()
+        self.sidebar.update()
+        self.update()
+
+    def _animate_shell(self, target, t_from: float, t_to: float, on_done=None) -> None:
+        """单一进度动画：窗口几何 + 外边距 + 圆角同步过渡（最大化 / 还原共用）。"""
+        if not self.ctx.settings.get("app.animations", True):
+            self.setGeometry(target)
+            if on_done is not None:
+                on_done()
             return
-        geo = self.frameGeometry()
-        if geo.width() < 64 or geo.height() < 64:
-            return
-        if hide_window:
-            self.setWindowOpacity(0.0)
-            QApplication.processEvents()
+        start = self.geometry()
+        self._animating = True
+        self._apply_mask()          # 动画期间用矩形窗口，避免每帧重算圆角遮罩
+        self._shell_anim.stop()
         try:
-            screens = QApplication.screens()
-            field = glass.GlassField.capture(screens)
-            if field is None:
-                self._glass_ok = False
-                self._glass_field = None
-                return
-            self._glass_field = field
-            self._glass_geo = geo
-            self._glass_ok = True
-            self._sync_glass_frame()
-        finally:
-            if hide_window:
-                self.setWindowOpacity(1.0)
-        self.update()
+            self._shell_anim.finished.disconnect()
+            self._shell_anim.valueChanged.disconnect()
+        except TypeError:
+            pass
 
-    def _schedule_glass(self) -> None:
-        """窗口移动/缩放后请求取一帧（合并到 16ms 内一次）。"""
-        if not config.GLASS_ENABLED or self._glass_field is None:
-            return
-        if not self.ctx.settings.get("app.glass_follow", True):
-            return
-        self._glass_timer.start()
+        def _step(value) -> None:
+            t = float(value)
+            progress = max(0.0, min(1.0, (t - t_from) / (t_to - t_from) if t_to != t_from else 1.0))
+            self.setGeometry(
+                int(round(start.x() + (target.x() - start.x()) * progress)),
+                int(round(start.y() + (target.y() - start.y()) * progress)),
+                int(round(start.width() + (target.width() - start.width()) * progress)),
+                int(round(start.height() + (target.height() - start.height()) * progress)),
+            )
+            self._apply_shell_interim(t)
 
-    def _sync_glass_frame(self) -> None:
-        """从模糊场裁出当前窗口位置的一帧。"""
-        if not config.GLASS_ENABLED or self._glass_field is None:
-            return
-        geo = self.frameGeometry()
-        if geo.width() < 64 or geo.height() < 64:
-            return
-        frame = self._glass_field.frame(geo, self.size())
-        if frame is None:
-            return
-        self._glass_base = frame
-        self._glass_geo = geo
-        self._glass_ok = True
-        self.update()
+        def _finished() -> None:
+            self._animating = False
+            if on_done is not None:
+                on_done()
 
-    def refresh_glass(self) -> None:
-        """设置页调用：重新截取当前桌面作为毛玻璃底图（会短暂透明，用户主动触发）。"""
-        self._capture_glass(hide_window=True)
-
-    # -- 窗口移动 / 缩放：实时跟随 -------------------------------------------
-    def moveEvent(self, event) -> None:  # noqa: N802
-        super().moveEvent(event)
-        self._schedule_glass()
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._schedule_glass()
+        self._shell_anim.valueChanged.connect(_step)
+        self._shell_anim.finished.connect(_finished)
+        self._shell_anim.setStartValue(float(t_from))
+        self._shell_anim.setEndValue(float(t_to))
+        self._shell_anim.start()
 
     def toggle_maximize(self) -> None:
-        if self.isMaximized():
-            self.showNormal()
+        """自定义最大化：几何/边距/圆角一起平滑过渡；最大化态无毛玻璃、无圆角。"""
+        if self._animating:
+            return
+        if self._maximized:
+            self._maximized = False
             self.topbar.max_btn.set_icon_name("max")
-        else:
-            self.showMaximized()
-            self.topbar.max_btn.set_icon_name("restore")
-        if self.isMaximized():
-            self.showMaximized()
-        self._apply_mask()
-        self._schedule_glass()
-        self.update()
+            target = self._normal_geo if self._normal_geo is not None else self.geometry()
+
+            def _done() -> None:
+                self._set_shell_mode(False)
+                self._apply_mask()
+                self._enable_glass()
+                self.update()
+
+            self._animate_shell(target, 1.0, 0.0, _done)
+            return
+
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        self._normal_geo = self.geometry()
+        self._maximized = True
+        self.topbar.max_btn.set_icon_name("restore")
+        self._set_shell_mode(True)
+
+        def _done() -> None:
+            self._apply_mask()
+            self.update()
+
+        self._animate_shell(screen.availableGeometry(), 0.0, 1.0, _done)
 
     def toggle_theme(self) -> None:
         mode = theme.toggle()
@@ -362,30 +459,115 @@ class MainWindow(QWidget):
         if app is not None:
             app.setStyleSheet(app_qss(pal()))
         restyle(self)
+        self._enable_glass()
+
+    # -- 最小化渐隐 / 恢复渐显 -----------------------------------------------
+    def _fade_window(self, target: float, on_done=None) -> None:
+        if not self.ctx.settings.get("app.animations", True):
+            self.setWindowOpacity(target)
+            if on_done is not None:
+                on_done()
+            return
+        self._fade_anim.stop()
+        try:
+            self._fade_anim.finished.disconnect()
+        except TypeError:
+            pass
+        self._fade_anim.setStartValue(float(self.windowOpacity()))
+        self._fade_anim.setEndValue(float(target))
+        if on_done is not None:
+            self._fade_anim.finished.connect(on_done)
+        self._fade_anim.start()
+
+    def _minimize_with_fade(self) -> None:
+        def _done() -> None:
+            if not self.isMinimized():
+                self.showMinimized()
+
+        self._fade_window(0.0, _done)
+
+    def minimize_from_taskbar(self) -> None:
+        """任务栏图标点击（Windows 的 WM_SYSCOMMAND）→ 渐隐最小化。"""
+        if self.isMinimized():
+            return
+        self._minimize_with_fade()
+
+    def ensure_minimized(self) -> None:
+        """兜底：渐隐回调万一没生效，直接进最小化，保证任务栏按钮一定有反应。"""
+        if not self.isMinimized():
+            self.setWindowOpacity(1.0)
+            self.showMinimized()
+
+    def restore_for_drag(self, global_pos) -> None:
+        """最大化时拖顶栏：先还原到原尺寸，并让光标仍落在顶栏上。"""
+        if not self._maximized:
+            return
+        self._shell_anim.stop()
+        self._animating = False
+        target = QRect(self._normal_geo) if self._normal_geo is not None else QRect(self.geometry())
+        screen = self.screen() or QApplication.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else target
+        target.setWidth(min(target.width(), area.width()))
+        target.setHeight(min(target.height(), area.height()))
+        self._maximized = False
+        self.topbar.max_btn.set_icon_name("max")
+        self.setGeometry(target)
+        self._set_shell_mode(False)
+        self._apply_mask()
+        self._enable_glass()
+        ratio = (global_pos.x() - area.x()) / max(1, area.width())
+        ratio = max(0.05, min(0.95, ratio))
+        self.move(int(global_pos.x() - target.width() * ratio), int(global_pos.y() - 18))
+        self.update()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        event_type = event.type()
+        if event_type == QEvent.Type.WindowActivate and self.isVisible():
+            QTimer.singleShot(120, self._refresh_glass)
+        if event_type == QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                return
+            # 从最小化恢复：从透明渐显，避免"啪"地出现
+            if float(self.windowOpacity()) < 0.99:
+                self._fade_window(1.0)
+            self._set_shell_mode(self._maximized)
+        elif event_type in (QEvent.Type.WindowActivate, QEvent.Type.Show):
+            # 任务栏 / 托盘唤回时保证一定看得到（最小化渐隐后透明度是 0）
+            if not self.isMinimized() and float(self.windowOpacity()) < 0.99:
+                self._fade_window(1.0)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         colors = pal()
+        if self._maximized and not self._animating:
+            # 最大化：无毛玻璃、无圆角，整块铺满
+            p.fillRect(self.rect(), colors.window)
+            p.end()
+            return
         rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
-        if self._glass_base is not None:
-            # 模糊桌面 + 纸色染色 = 毛玻璃（最大化时也用整屏底图）
-            p.setClipPath(paint.round_rect(rect, SHELL_RADIUS))
-            p.drawPixmap(self.rect(), self._glass_base)
+        radius = self._shell_radius
+        if self._native_glass and not self._animating:
             tint = QColor(colors.paper)
-            tint.setAlpha(150 if colors.is_dark else 176)
-            p.fillRect(self.rect(), tint)
+            tint.setAlpha(30 if colors.is_dark else 56)
+            p.fillPath(paint.round_rect(rect, radius), tint)
         else:
-            paint.fill_round(p, rect, colors.window, SHELL_RADIUS)
-        paint.stroke_round(p, rect, colors.rule, SHELL_RADIUS, 1.0)
+            paint.fill_round(p, rect, colors.window, radius)
+        if radius > 0:
+            paint.stroke_round(p, rect, colors.rule, radius, 1.0)
         p.end()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._apply_mask()
+        if not self._animating:
+            self._apply_mask()
         if self.toast is not None:
             self.toast.setGeometry(0, 0, self.width(), self.height())
             self.toast.raise_()
+
+    def moveEvent(self, event) -> None:  # noqa: N802
+        super().moveEvent(event)
 
     # -- 无边框窗口：边缘缩放 ------------------------------------------------
     def _edges_at(self, pos) -> Qt.Edge:
@@ -401,7 +583,7 @@ class MainWindow(QWidget):
         return edges
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        if not self.isMaximized():
+        if not self._maximized:
             edges = self._edges_at(event.position().toPoint())
             if edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge) and edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge):
                 self.setCursor(Qt.CursorShape.SizeFDiagCursor)
@@ -414,7 +596,7 @@ class MainWindow(QWidget):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton and not self.isMaximized():
+        if event.button() == Qt.MouseButton.LeftButton and not self._maximized:
             edges = self._edges_at(event.position().toPoint())
             if edges:
                 handle = self.windowHandle()
@@ -429,7 +611,10 @@ class MainWindow(QWidget):
 
     # -- 持久化 -------------------------------------------------------------
     def closeEvent(self, event) -> None:  # noqa: N802
-        geo = self.normalGeometry() if self.isMaximized() else self.geometry()
+        if self._maximized and self._normal_geo is not None:
+            geo = self._normal_geo
+        else:
+            geo = self.geometry()
         self.ctx.settings.update(
             {
                 "window.w": geo.width(),

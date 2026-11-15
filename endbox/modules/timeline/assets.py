@@ -196,12 +196,32 @@ class AssetLibrary:
         return self.game_data.skill(name, kind) if self.game_data is not None else None
 
     def skill_icon(self, name: str, kind: str) -> Path | None:
+        generated = self.gen_icon(name, kind)
+        if generated is not None:
+            return generated
         info = self.skill(name, kind)
         if info is not None and info.icon is not None:
             return info.icon
         operator = self.get(name) if name else None
         normalized = normalize_skill_kind(kind)
         return operator.asset(normalized) if operator is not None and normalized else None
+
+    def gen_icon(self, name: str, kind: str) -> Path | None:
+        """``素材/gen`` 里按干员生成的卡片图标（优先于旧素材/数据站图标）。
+
+        skill_/link_/ult_ + 干员名 + ``_x.png``；重击固定 ``heavy_x_x_nb.png``。
+        """
+        gen_dir = self.root / "gen"
+        if not gen_dir.is_dir():
+            return None
+        normalized = normalize_skill_kind(kind) or str(kind or "").strip().lower()
+        if normalized in ("skill", "link", "ult") and name:
+            candidate = gen_dir / f"{normalized}_{name}_x.png"
+            return candidate if candidate.is_file() else None
+        if str(kind or "").strip().lower() == "heavy":
+            candidate = gen_dir / "heavy_x_x_nb.png"
+            return candidate if candidate.is_file() else None
+        return None
 
     def duration(self, name: str, kind: str, default: float = 0.0) -> float:
         if self.game_data is not None:
@@ -458,9 +478,9 @@ class AssetLibrary:
             class_name=class_name,
             element=element,
             avatar=operator.avatar or entry.avatar or self._gamedata_avatar(entry.name),
-            link=operator.link or self._data_skill_icon(entry, "link"),
-            skill=operator.skill or self._data_skill_icon(entry, "skill"),
-            ult=operator.ult or self._data_skill_icon(entry, "ult"),
+            link=self.gen_icon(entry.name, "link") or operator.link or self._data_skill_icon(entry, "link"),
+            skill=self.gen_icon(entry.name, "skill") or operator.skill or self._data_skill_icon(entry, "skill"),
+            ult=self.gen_icon(entry.name, "ult") or operator.ult or self._data_skill_icon(entry, "ult"),
             class_icon=self.class_icon(class_name),
             element_icon=self.element_icon(element),
         )
@@ -473,9 +493,9 @@ class AssetLibrary:
             class_name=entry.profession,
             element=entry.element,
             avatar=entry.avatar or self._gamedata_avatar(entry.name),
-            link=self._data_skill_icon(entry, "link"),
-            skill=self._data_skill_icon(entry, "skill"),
-            ult=self._data_skill_icon(entry, "ult"),
+            link=self.gen_icon(entry.name, "link") or self._data_skill_icon(entry, "link"),
+            skill=self.gen_icon(entry.name, "skill") or self._data_skill_icon(entry, "skill"),
+            ult=self.gen_icon(entry.name, "ult") or self._data_skill_icon(entry, "ult"),
             class_icon=self.class_icon(entry.profession),
             element_icon=self.element_icon(entry.element),
             color=None,
@@ -498,9 +518,9 @@ class AssetLibrary:
             class_name=class_name,
             element=element,
             avatar=_resolve(directory, "avatar.png"),
-            link=_resolve(directory, "link.png"),
-            skill=_resolve(directory, "skill.png"),
-            ult=_resolve(directory, "ult.png"),
+            link=self.gen_icon(name, "link") or _resolve(directory, "link.png"),
+            skill=self.gen_icon(name, "skill") or _resolve(directory, "skill.png"),
+            ult=self.gen_icon(name, "ult") or _resolve(directory, "ult.png"),
             class_icon=self.class_icon(class_name),
             element_icon=self.element_icon(element),
             color=color or None,

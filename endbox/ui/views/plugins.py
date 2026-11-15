@@ -665,7 +665,8 @@ class PluginManagerView(BaseView):
         add_layout.addWidget(add_btn)
         self._sources_panel.add(add_row)
         self._sources_panel.add(Label(t("plugins.market.sources.note"), "small", wrap=True))
-        layout.addWidget(self._sources_panel)
+        # 面板放在工具栏下面（之前放在市场列表末尾，点开后在页面最底部，看起来像"没反应"）
+        layout.insertWidget(2, self._sources_panel)
 
         layout.addStretch(1)
         scroll.set_content(host)

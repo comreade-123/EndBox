@@ -291,9 +291,11 @@ class TimelineService(QObject):
 - **默认整轴反复**：`RunEngine(repeat_all=True)` 跑完最后一步回到开头继续，永不结束；
   只有按 F8（或关掉整轴反复后跑到结尾）才结束。F10 临时切整轴反复。
 - 提示条显示排轴自身信息：当前步骤、下一步按键、第 N 段、进度、反复圈数；
-  卡片主视觉是**技能图标**（战技 / 连携 / 终结 / 重击用素材图标，切换干员画双向箭头），
-  干员头像缩成左上角小徽标；**显示长度可调**（`card_count` 3–9，默认 5，含当前格）。
-- 按对才前进，按错不动（`detail` 与 `stats` 实时更新）。
+  卡片主视觉是**技能图标**（战技 / 连携 / 终结 / 重击用 `素材/gen` 里按干员生成的卡片图，
+  切换干员画双向箭头），干员头像缩成左上角小徽标；**显示长度可调**（`card_count` 3–9，默认 5，含当前格）。
+- **按对才前进；按错直接跳过这一步**（不弹提示）：被跳过的卡片标红 + 左右震动，
+  前进到下一步时新当前卡片会出现白色圆圈从外向内收缩一次。
+  运行状态里有 `wrong_seq` / `advance_seq` / `wrong_gindex` 供提示条做这类动效。
 - 运行控制键：`F8` 退出、`F9` 回第一段、`F6/F7` 透明度、`F10` 整轴反复开关、`F11` 回反复起点。
 - 分享对话框导出时附一段可直接粘贴的文案（干员列表 + 分享码），由
   `share.share_blurb(team, code)` 生成，模板在文案 JSON 的 `timeline.share.blurb_template`。
@@ -323,7 +325,7 @@ class HudService(QObject):
 
 **宿主** `endbox/plugins/host.py::PluginHost(ctx, registry)`；**市场** `endbox/plugins/market.py::Marketplace`。
 
-- 插件目录：根 `plugins/`（随程序分发）与数据目录 `plugins/`（自己装，市场安装到 `data/plugins/<id>/`）。
+- 插件目录：根 `plugins/`（随程序分发）与数据目录 `plugins/`（自己装，市场安装到 `userdata/plugins/<id>/`）。
 - `plugin.json`：`id / name / version / author / description / icon / entry / order / min_app_version / permissions / category / tags / homepage`。
 - 生命周期 `on_load/on_enable/on_disable/on_unload`；异常被捕获、写日志、在插件页显示，绝不影响主程序。
 - 插件 API：`register_view`、`storage`（私有 JSON）、`event_bus.subscribe`（白名单 `timeline.*`、
@@ -351,18 +353,20 @@ class HudService(QObject):
 - 安装安全模型：流式下载（超时 + 大小上限）→ sha256 校验 → 安全解压（拒绝 zip slip、盘符、绝对路径、
   符号链接、加密条目、多顶层目录、超量文件/超大解压）→ manifest 校验（id/version/min_app_version 一致）
   → 临时目录 staging → 备份旧目录 → 替换；失败回滚。**只解压落盘，绝不执行市场里的代码。**
-- 来源记录写 `data/market_state.json`（`market` / `local` / `bundled`）；随程序分发的插件不允许市场覆盖。
+- 来源记录写 `userdata/market_state.json`（`market` / `local` / `bundled`）；随程序分发的插件不允许市场覆盖。
 - 打包：`python tools/pack_plugin.py --all`（确定性打包，重复打包 sha256 不变）与 `--check` 校验索引一致性。
 
 ## 11. 毛玻璃与自动化
 
-- 主窗口毛玻璃是**自绘**的（`endbox/ui/glass.py`）：启动时抓一次整屏 → `GlassField` 降采样成低分辨率
-  模糊场；窗口移动 / 缩放时只按偏移从模糊场裁一块放大（每帧约 1–4ms，不重复截屏，所以不闪）。
-  换壁纸 / 桌面内容变化由设置页「重新抓一次毛玻璃背景」显式重抓；`app.glass_follow=false` 可关掉跟随。
-  `tools/verify_glass.py` 做真实抓屏的跟随验证。
+- 主窗口毛玻璃是 **Windows 系统实时模糊**（`endbox/ui/glass.py::apply_acrylic`，
+  `SetWindowCompositionAttribute` 的 acrylic）：DWM 实时合成并模糊窗口背后的桌面，
+  拖动 / 换壁纸自动跟随，不截图、不闪、没有刷新按钮。
+- 窗口保留系统窗口样式（`WM_NCCALCSIZE` 里裁掉标题栏与边框），所以四角由 Windows 自己
+  画圆角、模糊也一起被裁圆；最大化时关闭模糊、取消圆角铺满。
+- 最大化 / 还原用单一进度动画（几何 + 边距 + 圆角一起插值）；最大化时拖顶栏先还原再继续拖。
 - 截图 / 自动化测试设 `ENDBOX_NO_GLASS=1`、`ENDBOX_NO_UPDATE_CHECK=1` 得到稳定且不联网的环境；
   `tools/shot.py`、`tools/integration_check.py`、`tests/conftest.py` 已默认设置。
-- 数据目录默认是**软件同目录的 `data/`**（便携模式），程序目录不可写时退回 `%APPDATA%\EndBox`；
+- 数据目录默认是**软件同目录的 `userdata/`**（便携模式），程序目录不可写时退回 `%APPDATA%\EndBox`；
   旧数据首次启动自动迁移；`ENDBOX_DATA_DIR` 可覆盖（沙箱 / 测试用）。
 
 ## 12. 版本与更新契约

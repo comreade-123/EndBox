@@ -456,7 +456,8 @@ def demo_state(now: int | None = None) -> dict[str, Any]:
         main_mission="演示数据：前往塔卫二",
         cur_stamina=92,
         max_stamina=135,
-        stamina_full_ts=stamp + 38 * 60,
+        # 演示数据按真实恢复速度（6 分钟 1 点）算满溢时间，界面反推恢复速度才真实
+        stamina_full_ts=stamp + (135 - 92) * 6 * 60,
         bp_level=27,
         bp_max_level=60,
         daily_activation=3,

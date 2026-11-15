@@ -8,9 +8,9 @@ from __future__ import annotations
 import sys
 import time
 
-from PyQt6.QtCore import QRectF, QUrl
-from PyQt6.QtGui import QDesktopServices, QPainter
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtCore import QRectF, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QPainter, QPixmap
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from endbox import __author__, config
 from endbox.core.text import t
@@ -109,18 +109,6 @@ class SettingsView(BaseView):
         self._anim_toggle.clicked.connect(self._on_animations)
         appearance.add(_row(self._anim_toggle))
         appearance.add(Label(t("settings.appearance.note", ""), "muted", wrap=True))
-
-        self._glass_btn = CutButton(
-            t("settings.appearance.glass_button", "重新抓一次毛玻璃背景"), "ghost", icon="refresh"
-        )
-        self._glass_btn.clicked.connect(self._refresh_glass)
-        appearance.add(_row(self._glass_btn))
-        self._glass_follow = Toggle(
-            t("settings.appearance.glass_follow", "背景跟随窗口"),
-            checked=bool(ctx.settings.get("app.glass_follow", True)),
-        )
-        self._glass_follow.clicked.connect(self._on_glass_follow)
-        appearance.add(_row(self._glass_follow))
         appearance.add(Label(t("settings.appearance.glass_note", ""), "muted", wrap=True))
         layout.addWidget(appearance)
 
@@ -241,6 +229,14 @@ class SettingsView(BaseView):
                 [t("settings.about.fields", "Python {python} │ PyQt6 │ Windows", python=sys.version.split()[0])]
             )
         )
+        self._sponsor_btn = CutButton(t("settings.about.sponsor", "赞助支持"), "ghost", icon="spark")
+        self._sponsor_btn.clicked.connect(self._show_sponsor)
+        about.add(
+            _row(
+                self._sponsor_btn,
+                Label(t("settings.about.sponsor_hint", "觉得好用可以请作者喝杯咖啡。"), "small"),
+            )
+        )
         layout.addWidget(about)
 
         # ------------------------------------------------------------ 更新
@@ -304,26 +300,33 @@ class SettingsView(BaseView):
                 t("shell.theme_to_light" if mode == "light" else "shell.theme_to_dark"), "ok"
             )
 
-    def _refresh_glass(self) -> None:
-        window = self.ctx.main_window
-        if window is not None and hasattr(window, "refresh_glass"):
-            window.refresh_glass()
-            self.ctx.notify(t("settings.appearance.glass_refreshed", "背景已重新抓取"), "ok")
+    def _show_sponsor(self) -> None:
+        """赞助码弹窗：扫码支持作者（图片随程序分发）。"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t("settings.about.sponsor_title", "赞助支持"))
+        dialog.setMinimumWidth(360)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        path = config.ASSETS / "branding" / "reward-code.png"
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            layout.addWidget(Label(t("settings.about.sponsor_missing", "赞助码图片缺失。"), "muted"))
         else:
-            self.ctx.notify(t("settings.appearance.glass_unsupported", "这个窗口不支持毛玻璃背景"), "warn")
-
-    def _on_glass_follow(self, checked: bool) -> None:
-        self.ctx.settings.set("app.glass_follow", bool(checked))
-        self.ctx.notify(
-            t(
-                "settings.appearance.glass_follow_on" if checked else "settings.appearance.glass_follow_off",
-                "背景会跟着窗口走" if checked else "背景固定在抓取时的位置",
-            ),
-            "ok",
-        )
-        window = self.ctx.main_window
-        if checked and window is not None and hasattr(window, "_schedule_glass"):  # noqa: SLF001
-            window._schedule_glass()  # noqa: SLF001
+            image = QLabel()
+            image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            scaled = pixmap.scaled(
+                280, 280,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            image.setPixmap(scaled)
+            layout.addWidget(image, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(Label(t("settings.about.sponsor_note", ""), "small", wrap=True))
+        close = CutButton(t("common.close", "关闭"), "primary")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close, 0, Qt.AlignmentFlag.AlignRight)
+        dialog.exec()
 
     def _reload_texts(self) -> None:
         from endbox.core.text import reload_texts

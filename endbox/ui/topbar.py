@@ -109,7 +109,16 @@ class TopBar(EWidget):
     # -- 无边框窗口拖动 -----------------------------------------------------
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
-            handle = self.window().windowHandle()
+            win = self.window()
+            handle = win.windowHandle()
+            if getattr(win, "_maximized", False):
+                # 最大化时拖动顶栏：先还原，再接着拖（和系统窗口一致）
+                restore = getattr(win, "restore_for_drag", None)
+                if callable(restore):
+                    restore(event.globalPosition().toPoint())
+                if handle is not None:
+                    handle.startSystemMove()
+                return
             if handle is not None:
                 handle.startSystemMove()
                 return
@@ -154,7 +163,15 @@ class _TitleBlock(EWidget):
     # -- 拖动 / 双击最大化 ---------------------------------------------------
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
-            handle = self.window().windowHandle()
+            win = self.window()
+            handle = win.windowHandle()
+            if getattr(win, "_maximized", False):
+                restore = getattr(win, "restore_for_drag", None)
+                if callable(restore):
+                    restore(event.globalPosition().toPoint())
+                if handle is not None:
+                    handle.startSystemMove()
+                return
             if handle is not None:
                 handle.startSystemMove()
                 return

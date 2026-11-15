@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """毛玻璃与窗口特效。
 
-Windows 11 的 ``ACCENT_ENABLE_ACRYLICBLURBEHIND`` 在部分版本上只对客户区做
-平涂染色、不再模糊背景（实测 26200），所以 EndBox 采用**自绘毛玻璃**：
-启动 / 移动窗口后截取窗口背后的桌面，做降采样模糊 + 纸色染色，铺在窗口底层；
-侧边栏顶部再叠半透明表面。结果稳定可控，且不依赖 DWM 的版本行为。
-原生 acrylic 仍保留为可选增强（见 :func:`apply_acrylic`），HUD 鼠标穿透也在这里。
+EndBox 用 **系统级实时模糊**（DWM 合成）做毛玻璃：窗口透明区域由 Windows 实时合成
+桌面模糊，拖动、换壁纸都即时生效，不截图、不需要「刷新背景」这类按钮。
+
+- Windows 11 22H2+：``DWMWA_SYSTEMBACKDROP_TYPE = DWMSBT_TRANSIENTWINDOW``（Acrylic）
+- 更老的系统：退回 ``SetWindowCompositionAttribute`` 的 blur-behind（同样实时）
+- 都不支持时（Linux / 关闭毛玻璃的截图环境）：窗口用纯色底，不影响使用
+
+HUD 的鼠标穿透也在这里。
 """
 from __future__ import annotations
 
@@ -26,6 +29,22 @@ WCA_ACCENT_POLICY = 19
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWA_SYSTEMBACKDROP_TYPE = 38
+
+DWMSBT_NONE = 1
+DWMSBT_MAINWINDOW = 2        # Mica
+DWMSBT_TRANSIENTWINDOW = 3   # Acrylic（实时模糊，适合工具窗口）
+DWMSBT_TABBEDWINDOW = 4
+DWMWCP_ROUND = 2
+
+
+def set_rounded_corners(window, preference: int = DWMWCP_ROUND) -> bool:
+    """让 DWM 自己把窗口四角画圆（accent 模糊会铺满整个窗口矩形，要靠系统圆角裁）。"""
+    if not _IS_WIN:
+        return False
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return False
+    return _dwm_set_int(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, int(preference))
 
 
 class _AccentPolicy(ctypes.Structure):
@@ -59,12 +78,49 @@ def _tint_argb(hex_color: str, alpha: int = 0xCC) -> int:
 def _hwnd(widget) -> int:
     try:
         return int(widget.winId())
-    except (RuntimeError, TypeError):
+    except (AttributeError, RuntimeError, TypeError):
         return 0
 
 
+def _dwm_set_int(hwnd: int, attribute: int, value: int) -> bool:
+    try:
+        dwm = ctypes.WinDLL("dwmapi")
+        data = ctypes.c_int(int(value))
+        result = dwm.DwmSetWindowAttribute(
+            wintypes.HWND(hwnd), ctypes.c_uint(attribute), ctypes.byref(data), ctypes.sizeof(data)
+        )
+        return result == 0
+    except Exception:  # noqa: BLE001
+        log.debug("dwm attribute %s failed", attribute, exc_info=True)
+        return False
+
+
+def _accent_blur(window) -> bool:
+    """Windows 10 的 blur-behind：实时模糊，不需要截图。"""
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return False
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SetWindowCompositionAttribute.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(_WindowCompositionAttributeData),
+        ]
+        user32.SetWindowCompositionAttribute.restype = wintypes.BOOL
+        policy = _AccentPolicy(ACCENT_ENABLE_BLURBEHIND, 2, 0x00000000, 0)
+        data = _WindowCompositionAttributeData(
+            WCA_ACCENT_POLICY,
+            ctypes.cast(ctypes.pointer(policy), ctypes.c_void_p),
+            ctypes.sizeof(policy),
+        )
+        return bool(user32.SetWindowCompositionAttribute(wintypes.HWND(hwnd), ctypes.byref(data)))
+    except Exception:  # noqa: BLE001
+        log.exception("accent blur failed")
+        return False
+
+
 def apply_acrylic(window, *, tint: str = "#161616", alpha: int = 0xCC) -> bool:
-    """给无边框窗口加毛玻璃。成功返回 True。"""
+    """额外把窗口染成指定颜色（可选增强，不影响实时模糊）。"""
     if not _IS_WIN:
         return False
     hwnd = _hwnd(window)
@@ -83,10 +139,7 @@ def apply_acrylic(window, *, tint: str = "#161616", alpha: int = 0xCC) -> bool:
             ctypes.cast(ctypes.pointer(policy), ctypes.c_void_p),
             ctypes.sizeof(policy),
         )
-        ok = bool(user32.SetWindowCompositionAttribute(wintypes.HWND(hwnd), ctypes.byref(data)))
-        if ok:
-            _win11_extras(hwnd)
-        return ok
+        return bool(user32.SetWindowCompositionAttribute(wintypes.HWND(hwnd), ctypes.byref(data)))
     except Exception:  # noqa: BLE001
         log.exception("acrylic failed")
         return False
@@ -115,13 +168,69 @@ def disable_acrylic(window) -> None:
         pass
 
 
-def _win11_extras(hwnd: int) -> None:
+# ---------------------------------------------------------------------------
+# 实时毛玻璃：DWM 合成桌面模糊（不截图，不需要手动刷新）
+# ---------------------------------------------------------------------------
+def enable_realtime_glass(window, *, dark: bool = True) -> bool:
+    """开启系统实时模糊。成功返回 True；失败时窗口退回纯色底。
+
+    优先用 ``SetWindowCompositionAttribute`` 的 blur-behind（对无边框 / 分层窗口最稳，
+    桌面内容实时模糊），再尝试 Win11 的系统背景材质。
+    """
+    if not _IS_WIN:
+        return False
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return False
+    _dwm_set_int(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, 1 if dark else 0)
+    if _accent_blur(window):
+        return True
+    if _dwm_set_int(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW):
+        return True
+    return False
+
+
+class _BlurBehind(ctypes.Structure):
+    _fields_ = [
+        ("dwFlags", wintypes.DWORD),
+        ("fEnable", wintypes.BOOL),
+        ("hRgnBlur", wintypes.HANDLE),
+        ("fTransitionOnMaximized", wintypes.BOOL),
+    ]
+
+
+_DWM_BB_ENABLE = 0x00000001
+
+
+def set_blur_behind(window, enabled: bool = True) -> bool:
+    """系统实时模糊（DwmEnableBlurBehindWindow）：DWM 合成桌面并模糊，窗口移动不用重抓。
+
+    实测比 Mica / Acrylic 更可靠：只要窗口本身不加不透明底色，桌面会被实时高斯模糊。
+    """
+    if not _IS_WIN:
+        return False
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return False
     try:
         dwm = ctypes.WinDLL("dwmapi")
-        value = ctypes.c_int(2)  # DWMWCP_ROUND? 用 2 = 圆角；EndBox 要直角，改用 1（不圆角）
-        dwm.DwmSetWindowAttribute(wintypes.HWND(hwnd), DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(value), 4)
+        data = _BlurBehind(_DWM_BB_ENABLE, bool(enabled), None, False)
+        result = dwm.DwmEnableBlurBehindWindow(wintypes.HWND(hwnd), ctypes.byref(data))
+        return int(result) == 0
     except Exception:  # noqa: BLE001
-        pass
+        log.exception("blur-behind failed")
+        return False
+
+
+def disable_realtime_glass(window) -> None:
+    """关掉实时模糊（最大化 / 关闭毛玻璃时用）。"""
+    if not _IS_WIN:
+        return
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return
+    _dwm_set_int(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_NONE)
+    disable_acrylic(window)
 
 
 def set_dark_titlebar(window, dark: bool) -> None:
@@ -130,12 +239,7 @@ def set_dark_titlebar(window, dark: bool) -> None:
     hwnd = _hwnd(window)
     if not hwnd:
         return
-    try:
-        dwm = ctypes.WinDLL("dwmapi")
-        value = ctypes.c_int(1 if dark else 0)
-        dwm.DwmSetWindowAttribute(wintypes.HWND(hwnd), DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), 4)
-    except Exception:  # noqa: BLE001
-        pass
+    _dwm_set_int(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, 1 if dark else 0)
 
 
 def set_click_through(window, enabled: bool = True) -> bool:
@@ -169,142 +273,71 @@ def set_click_through(window, enabled: bool = True) -> bool:
         return False
 
 
-# ---------------------------------------------------------------------------
-# 自绘毛玻璃：抓取窗口背后的桌面 → 模糊 → 染色
-# ---------------------------------------------------------------------------
-def grab_desktop(screen, rect) -> "QPixmap | None":
-    """抓取屏幕上的 rect（逻辑像素坐标），失败返回 None。"""
-    if screen is None:
-        return None
-    try:
-        from PyQt6.QtGui import QPixmap
-
-        pix = screen.grabWindow(
-            0, int(rect.x()), int(rect.y()), int(rect.width()), int(rect.height())
-        )
-        if pix.isNull() or pix.width() <= 1:
-            return None
-        return pix
-    except Exception:  # noqa: BLE001
-        log.exception("grab_desktop failed")
-        return None
-
-
-def frosted(pix, size, passes: int = 3):
-    """降采样 → 多次平滑放大，得到廉价且稳定的毛玻璃底图。"""
-    from PyQt6.QtCore import QSize, Qt
-
-    if pix is None or pix.isNull():
-        return None
-    small_w = max(2, int(size.width()) // 12)
-    small_h = max(2, int(size.height()) // 12)
-    small = pix.scaled(
-        small_w, small_h,
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-    for _ in range(max(0, passes - 1)):
-        small = small.scaled(
-            max(2, small.width() // 2), max(2, small.height() // 2),
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-    return small.scaled(
-        int(size.width()), int(size.height()),
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-
 
 # ---------------------------------------------------------------------------
-# 实时毛玻璃：整屏抓一次 → 低分辨率「模糊场」→ 窗口移动时按偏移裁剪
+# 按需抓屏毛玻璃：临时 cloak 窗口 → 抓窗口背后的桌面 → 恢复
 # ---------------------------------------------------------------------------
+DWMWA_CLOAK = 13
+
+
+def set_cloaked(window, cloaked: bool) -> bool:
+    """把窗口从 DWM 合成里临时隐藏（不改变可见状态，可立即恢复）。"""
+    hwnd = _hwnd(window)
+    if not hwnd:
+        return False
+    return _dwm_set_int(hwnd, DWMWA_CLOAK, 1 if cloaked else 0)
+
+
 class GlassField:
-    """一张覆盖所有屏幕的低分辨率模糊底图。
+    """低分辨率模糊底图：窗口移动时按偏移裁一块放大（每帧 1–3ms）。"""
 
-    窗口移动/缩放时不再重新截屏（那会闪一下），只从这张小图里裁出窗口位置对应的一块
-    再平滑放大 —— 背景会跟着窗口真实"走"，每帧只裁一次小图，开销约 1–2ms。
-
-    - ``capture(screens)``：启动时抓一次整屏并降采样；
-    - ``frame(geo, size)``：按窗口逻辑几何裁一块，返回 ``QPixmap``；超出抓图范围返回 None。
-    """
-
-    DIVISOR = 12          # 每个方向 /12：1320 宽的窗口 ≈ 110px 的源，放大后就是毛玻璃
-    EXTRA_BLUR = 1        # 再折半一次，柔化色块边界
+    DIVISOR = 8
 
     def __init__(self, image, origin, logical_size):
         from PyQt6.QtCore import QPoint, QSize
 
-        self._image = image                     # QImage，低分辨率
-        self._origin = QPoint(origin)           # 抓图区域左上角的逻辑坐标
-        self._logical = QSize(logical_size)     # 抓图区域的逻辑尺寸
+        self._image = image
+        self._origin = QPoint(origin)
+        self._logical = QSize(logical_size)
+        self._cache_key = None
+        self._cache_pix = None
 
-    # -- 抓图 ---------------------------------------------------------------
     @classmethod
-    def capture(cls, screens):
-        """抓取所有屏幕拼成一张图，降采样成模糊场。失败返回 None。"""
-        from PyQt6.QtCore import QPoint, QRect, QSize, Qt
-        from PyQt6.QtGui import QImage, QPainter
+    def from_pixmap(cls, pixmap, origin, logical_size, divisor: int = 0):
+        from PyQt6.QtCore import QSize, Qt
 
-        screens = [screen for screen in (screens or []) if screen is not None]
-        if not screens:
+        if pixmap is None or pixmap.isNull():
             return None
-        union = QRect(screens[0].geometry())
-        for screen in screens[1:]:
-            union = union.united(screen.geometry())
-        if union.width() < 64 or union.height() < 64:
-            return None
-
-        canvas = QImage(union.size(), QImage.Format.Format_ARGB32_Premultiplied)
-        canvas.fill(Qt.GlobalColor.transparent)
-        painted = False
-        for screen in screens:
-            geo = screen.geometry()
-            try:
-                pix = screen.grabWindow(0, 0, 0, geo.width(), geo.height())
-            except Exception:  # noqa: BLE001 - 抓图失败时其他屏幕照常
-                log.exception("glass grab failed")
-                continue
-            if pix is None or pix.isNull():
-                continue
-            image = pix.toImage()
-            image.setDevicePixelRatio(1.0)
-            if image.size() != geo.size():
-                image = image.scaled(
-                    geo.size(),
-                    Qt.AspectRatioMode.IgnoreAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            painter = QPainter(canvas)
-            painter.drawImage(geo.topLeft() - union.topLeft(), image)
-            painter.end()
-            painted = True
-        if not painted:
-            return None
-
-        small = canvas.scaled(
-            max(2, int(union.width()) // cls.DIVISOR),
-            max(2, int(union.height()) // cls.DIVISOR),
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        for _ in range(max(0, cls.EXTRA_BLUR)):
-            small = small.scaled(
-                max(2, small.width() // 2),
-                max(2, small.height() // 2),
+        image = pixmap.toImage()
+        image.setDevicePixelRatio(1.0)
+        logical = QSize(logical_size)
+        if image.size() != logical:
+            image = image.scaled(
+                logical,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-        return cls(small, union.topLeft(), QSize(union.size()))
+        div = divisor or cls.DIVISOR
+        small = image.scaled(
+            max(2, int(logical.width()) // div),
+            max(2, int(logical.height()) // div),
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        return cls(small, origin, logical)
 
-    # -- 取帧 ---------------------------------------------------------------
     def frame(self, geo, size):
-        """窗口几何（逻辑像素）→ 该位置对应的毛玻璃图；完全在图外返回 None。"""
-        from PyQt6.QtCore import QRect, QRectF, Qt
+        from PyQt6.QtCore import QRectF, Qt
         from PyQt6.QtGui import QPixmap
 
         if self._image is None or self._image.isNull():
             return None
+        key = (
+            int(geo.x()), int(geo.y()), int(geo.width()), int(geo.height()),
+            int(size.width()), int(size.height()),
+        )
+        if key == self._cache_key and self._cache_pix is not None:
+            return self._cache_pix
         scale_x = self._image.width() / max(1.0, float(self._logical.width()))
         scale_y = self._image.height() / max(1.0, float(self._logical.height()))
         source = QRectF(
@@ -316,14 +349,13 @@ class GlassField:
         bounds = QRectF(0, 0, self._image.width(), self._image.height())
         if not source.intersects(bounds):
             return None
-        # 窗口只探出抓图区域一部分时，先裁可见部分再拉伸，避免黑边
         visible = source.intersected(bounds)
         if visible.width() < 1 or visible.height() < 1:
             return None
         crop = self._image.copy(visible.toAlignedRect().intersected(self._image.rect()))
         if crop.isNull():
             return None
-        return QPixmap.fromImage(
+        pixmap = QPixmap.fromImage(
             crop.scaled(
                 int(size.width()),
                 int(size.height()),
@@ -331,3 +363,6 @@ class GlassField:
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
+        self._cache_key = key
+        self._cache_pix = pixmap
+        return pixmap
